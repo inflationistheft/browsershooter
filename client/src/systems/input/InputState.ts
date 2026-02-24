@@ -64,6 +64,29 @@ export class InputSampler {
     this.state.slideJustPressed = slideNow && !this.slideWasDown;
     this.slideWasDown = slideNow;
     this.state.slide = slideNow;
+    if (this.state.slideJustPressed) {
+      // #region agent log
+      fetch("http://127.0.0.1:7291/ingest/e6ca52ac-ce07-4922-9b3f-cd33fd3e1212", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Debug-Session-Id": "485d75",
+        },
+        body: JSON.stringify({
+          sessionId: "485d75",
+          runId: "initial",
+          hypothesisId: "H1",
+          location: "InputState.ts:getState",
+          message: "slideJustPressed",
+          data: {
+            slideNow,
+            sprint: this.state.sprint,
+          },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
+    }
     return this.state;
   }
 

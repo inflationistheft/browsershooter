@@ -12,12 +12,6 @@ export async function loadGLB(url: string): Promise<THREE.Group> {
   return gltf.scene;
 }
 
-/** Load GLB and return scene + animation clips (for mixer). */
-export async function loadGLBWithAnimations(url: string): Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] }> {
-  const gltf = await gltfLoader.loadAsync(url);
-  return { scene: gltf.scene, animations: gltf.animations ?? [] };
-}
-
 /** Placeholder in human scale: 1 unit = 1 m, box 0.5×1.8×0.5 (W×H×D). */
 export function createPlaceholderMesh(): THREE.Mesh {
   const geo = new THREE.BoxGeometry(0.5, 1.8, 0.5);
@@ -35,27 +29,23 @@ export async function loadPlayerModel(url: string): Promise<THREE.Object3D> {
   }
 }
 
-/** Load dummy model; clone result for each dummy instance. */
-export async function loadDummyModel(url: string): Promise<THREE.Object3D> {
-  if (!url.trim()) return createPlaceholderMesh();
-  try {
-    return await loadGLB(url);
-  } catch {
-    return createPlaceholderMesh();
-  }
+export interface DummyLoadResult {
+  scene: THREE.Object3D;
+  animations: THREE.AnimationClip[];
 }
 
-/** Load dummy mesh from modelUrl; if animationUrl set, load clips from that GLB (same rig recommended). */
-export async function loadDummyWithAnimation(
-  modelUrl: string,
-  animationUrl: string
-): Promise<{ scene: THREE.Object3D; animations: THREE.AnimationClip[] }> {
-  const scene = await loadDummyModel(modelUrl);
-  if (!animationUrl.trim()) return { scene, animations: [] };
+/** Load dummy model with animations (e.g. for Idle). Clone scene per instance; use animations with AnimationMixer. */
+export async function loadDummyModel(url: string): Promise<DummyLoadResult> {
+  if (!url.trim()) {
+    return { scene: createPlaceholderMesh(), animations: [] };
+  }
   try {
-    const { animations } = await loadGLBWithAnimations(animationUrl);
-    return { scene, animations };
+    const gltf = await gltfLoader.loadAsync(url);
+    return {
+      scene: gltf.scene,
+      animations: gltf.animations ?? [],
+    };
   } catch {
-    return { scene, animations: [] };
+    return { scene: createPlaceholderMesh(), animations: [] };
   }
 }

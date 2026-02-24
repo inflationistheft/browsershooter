@@ -14,8 +14,10 @@ export declare const movementTuning: {
     readonly coyoteTime: 0.12;
     readonly jumpBufferTime: 0.12;
     readonly slideInitialSpeed: 13.5;
-    readonly slideDecay: 0.9;
-    readonly slideMinSpeed: 4;
+    readonly slideDecay: 0.95;
+    readonly slideMinSpeed: 2;
+    /** Max slide duration in seconds (Apex-style: slide runs for this long, no need to hold C). */
+    readonly slideDurationMax: 1.4;
     /** Min horizontal speed to enter slide (should be sprinting). */
     readonly slideEnterSpeed: 6;
     readonly maxSpeedCrouch: 3;

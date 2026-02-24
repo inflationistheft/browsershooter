@@ -3,6 +3,7 @@
  */
 
 import * as THREE from "three";
+import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { GameLoop } from "./core/GameLoop.js";
 import { clientConfig } from "./config/index.js";
 import { InputSampler } from "./systems/input/InputState.js";
@@ -12,7 +13,7 @@ import { SceneManager } from "./systems/rendering/SceneManager.js";
 import { createHUD, updateHUD } from "./systems/ui/HUD.js";
 import { createDebugOverlay, updateDebugOverlay } from "./debug/DebugOverlay.js";
 import { WEAPON_STUB } from "./systems/gameplay/WeaponStub.js";
-import { loadPlayerModel, loadDummyWithAnimation } from "./systems/assetLoader/AssetLoader.js";
+import { loadPlayerModel, loadDummyModel } from "./systems/assetLoader/AssetLoader.js";
 import { PLAYER_EYE_HEIGHT, CROUCH_EYE_HEIGHT } from "shared";
 
 const app = document.getElementById("app");
@@ -68,21 +69,27 @@ const loop = new GameLoop();
 
 // Player model (FPS): attached to camera
 let playerViewModel: THREE.Object3D | null = null;
-// Dummies: in scene + animation mixers
+// Dummies: in scene, each with Idle animation
 const dummyMeshes: THREE.Object3D[] = [];
 const dummyMixers: THREE.AnimationMixer[] = [];
-/** Dummy positions in meters (1 unit = 1 m); y = half character height so feet on ground. */
-const DUMMY_POSITIONS: [number, number, number][] = [[5, 0.9, 5], [-4, 0.9, 6], [3, 0.9, -5]];
+/** Dummy positions in meters (1 unit = 1 m); y = 0 = Boden (GLB-Origin typisch an den Füßen). */
+const DUMMY_POSITIONS: [number, number, number][] = [[5, 0, 5], [-4, 0, 6], [3, 0, -5]];
 
-function findIdleClip(animations: THREE.AnimationClip[]): THREE.AnimationClip | null {
-  const byName = animations.find((c) => /rifle\s*aim\s*idle|idle|aim\s*idle/i.test(c.name));
-  return byName ?? animations[0] ?? null;
+/** Idle = "idleaiming" (zusammengeschrieben) oder "idle aiming", case-insensitive; sonst "idle", sonst erster Clip. */
+function findIdleClip(animations: THREE.AnimationClip[]): THREE.AnimationClip | undefined {
+  if (!animations.length) return undefined;
+  const normalized = (n: string) => n.toLowerCase().replace(/\s+/g, "");
+  const idleAiming = animations.find((c) => normalized(c.name) === "idleaiming");
+  if (idleAiming) return idleAiming;
+  const idle = animations.find((c) => c.name === "idle");
+  if (idle) return idle;
+  return animations[0];
 }
 
 async function initAssets(): Promise<void> {
   const [playerModel, dummyResult] = await Promise.all([
     loadPlayerModel(clientConfig.playerModelUrl),
-    loadDummyWithAnimation(clientConfig.dummyModelUrl, clientConfig.dummyIdleAnimationUrl),
+    loadDummyModel(clientConfig.dummyModelUrl),
   ]);
   playerViewModel = playerModel;
   const cam = cameraSystem.getCamera();
@@ -91,18 +98,30 @@ async function initAssets(): Promise<void> {
   playerModel.rotation.set(0, 0, 0);
   playerModel.scale.setScalar(1);
 
-  const scene = sceneManager.getScene();
+  // Tint only VanguardBodyMat red (affects all clones), keep visor etc. as-is
+  dummyResult.scene.traverse((obj) => {
+    const mesh = obj as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    for (const mat of materials) {
+      const m = mat as THREE.MeshStandardMaterial;
+      if (!m || !m.color) continue;
+      if (m.name === "VanguardBodyMat") {
+        m.color.setHex(0xff4040);
+      }
+    }
+  });
+
   const idleClip = findIdleClip(dummyResult.animations);
+  const scene = sceneManager.getScene();
   for (const [x, y, z] of DUMMY_POSITIONS) {
-    const clone = dummyResult.scene.clone(true);
+    const clone = cloneSkeleton(dummyResult.scene);
     clone.position.set(x, y, z);
     scene.add(clone);
     dummyMeshes.push(clone);
     if (idleClip) {
       const mixer = new THREE.AnimationMixer(clone);
-      const action = mixer.clipAction(idleClip);
-      action.setLoop(THREE.LoopRepeat, Infinity);
-      action.play();
+      mixer.clipAction(idleClip).play();
       dummyMixers.push(mixer);
     }
   }
@@ -118,8 +137,8 @@ loop
     cameraSystem.setRotation(snap.yaw, snap.pitch);
   })
   .setRenderCallback((dt) => {
-    for (const mixer of dummyMixers) mixer.update(dt);
     cameraSystem.update(dt);
+    dummyMixers.forEach((m) => m.update(dt));
     sceneManager.render(cameraSystem.getCamera());
     updateHUD(100, WEAPON_STUB.ammo, WEAPON_STUB.maxAmmo);
     if (clientConfig.debugOverlay) {

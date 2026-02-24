@@ -15,8 +15,11 @@ export const movementTuning = {
   coyoteTime: 0.12,
   jumpBufferTime: 0.12,
   slideInitialSpeed: 13.5,
-  slideDecay: 0.9,
-  slideMinSpeed: 4,
+  // Slightly slower decay + lower min speed so slide lasts ~1.1s statt ~0.43s (siehe Debug-Logs)
+  slideDecay: 0.95,
+  slideMinSpeed: 2,
+  /** Max slide duration in seconds (Apex-style: slide runs for this long, no need to hold C). */
+  slideDurationMax: 1.4,
   /** Min horizontal speed to enter slide (should be sprinting). */
   slideEnterSpeed: 6,
   maxSpeedCrouch: 3,

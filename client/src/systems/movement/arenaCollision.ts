@@ -32,18 +32,20 @@ export function resolveArenaWalls(px: number, pz: number, radius: number): Arena
   const r = radius + MARGIN;
   for (const [xMin, xMax, zMin, zMax] of WALLS) {
     if (x >= xMin - r && x <= xMax + r && z >= zMin - r && z <= zMax + r) {
+      // Push to fully outside the wall (player center clear of wall volume).
+      // Use exterior edges: xMin-r / xMax+r and zMin-r / zMax+r (not xMin+r / zMin+r which can stay inside thin walls).
       if (x < xMin + r) {
-        x = xMin + r;
+        x = xMin - r;
         normalX = 1;
       } else if (x > xMax - r) {
-        x = xMax - r;
+        x = xMax + r;
         normalX = -1;
       }
       if (z < zMin + r) {
-        z = zMin + r;
+        z = zMin - r;
         normalZ = 1;
       } else if (z > zMax - r) {
-        z = zMax - r;
+        z = zMax + r;
         normalZ = -1;
       }
     }

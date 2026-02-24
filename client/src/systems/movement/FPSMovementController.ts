@@ -24,7 +24,6 @@ export interface MovementSnapshot {
 
 /** Ground plane Y in world (1 unit = 1 meter). */
 const GROUND_Y = 0;
-const SLIDE_DURATION_MAX = 1.2;
 
 export class FPSMovementController {
   position = { x: 0, y: GROUND_Y, z: 0 };
@@ -36,6 +35,10 @@ export class FPSMovementController {
   private coyoteTimer = 0;
   private jumpBufferTimer = 0;
   private crouching = false;
+  /** Frames left where we can enter slide after pressing C (avoids missing slideJustPressed across ticks). */
+  private slideIntentTicks = 0;
+  /** C was pressed in air → enter slide on land without holding C. */
+  private slideOnLand = false;
 
   update(dt: number, input: Readonly<InputState>, _physics: { raycast?: () => boolean }): void {
     const t = movementTuning;
@@ -67,7 +70,8 @@ export class FPSMovementController {
       this.position.z = wall.z;
       applyWallVelocitySlide(this.velocity, wall);
 
-      const stillSliding = hor >= t.slideMinSpeed && this.slideTime < SLIDE_DURATION_MAX && this.position.y <= GROUND_Y + 0.01;
+      // Apex-style: slide runs for duration / until too slow; no need to hold C
+      const stillSliding = hor >= t.slideMinSpeed && this.slideTime < t.slideDurationMax && this.position.y <= GROUND_Y + 0.01;
       if (this.jumpBufferTimer > 0 && stillSliding) {
         const mult = t.slideJumpMultiplier;
         this.velocity.y = t.jumpForce * mult;
@@ -76,6 +80,29 @@ export class FPSMovementController {
         this.jumpBufferTimer = 0;
         this.state = "airborne";
       } else if (!stillSliding) {
+        // #region agent log
+        fetch("http://127.0.0.1:7291/ingest/e6ca52ac-ce07-4922-9b3f-cd33fd3e1212", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Debug-Session-Id": "485d75",
+          },
+          body: JSON.stringify({
+            sessionId: "485d75",
+            runId: "initial",
+            hypothesisId: "H3",
+            location: "FPSMovementController.ts:update",
+            message: "slide_end",
+            data: {
+              slideTime: this.slideTime,
+              hor,
+              posY: this.position.y,
+            },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+        // #endregion
+        // End slide: go to grounded (velocity kept → friction slows to stop; W = walk/crouch speed)
         if (this.position.y <= GROUND_Y + 0.01) this.state = "grounded";
         else this.state = "airborne";
       }
@@ -86,9 +113,31 @@ export class FPSMovementController {
     }
 
     if (this.state === "airborne") {
+      if (input.slideJustPressed) {
+        this.slideOnLand = true;
+        // #region agent log
+        fetch("http://127.0.0.1:7291/ingest/e6ca52ac-ce07-4922-9b3f-cd33fd3e1212", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Debug-Session-Id": "485d75",
+          },
+          body: JSON.stringify({
+            sessionId: "485d75",
+            runId: "initial",
+            hypothesisId: "H2",
+            location: "FPSMovementController.ts:update",
+            message: "slideOnLand_set",
+            data: {
+              velocity: { x: this.velocity.x, y: this.velocity.y, z: this.velocity.z },
+            },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+        // #endregion
+      }
       const cos = Math.cos(this.yaw);
       const sin = Math.sin(this.yaw);
-      // FPS: forward = (-sin(yaw), 0, -cos(yaw)), right = (cos(yaw), 0, -sin(yaw))
       const axAir = (input.moveX * cos - input.moveZ * sin) * t.airAccel * dt * 0.3;
       const azAir = (-input.moveX * sin - input.moveZ * cos) * t.airAccel * dt * 0.3;
       this.velocity.x += axAir;
@@ -107,7 +156,41 @@ export class FPSMovementController {
       if (nextY <= GROUND_Y) {
         this.position.y = GROUND_Y;
         this.velocity.y = 0;
-        this.state = "grounded";
+        const horLand = Math.hypot(this.velocity.x, this.velocity.z);
+        // Air slide: C pressed in air → slide on land (no need to hold C)
+        if (this.slideOnLand && horLand >= t.slideEnterSpeed) {
+          this.state = "sliding";
+          this.slideTime = 0;
+          this.crouching = true;
+          const boost = Math.max(horLand, t.slideInitialSpeed);
+          if (horLand > 0) {
+            this.velocity.x = (this.velocity.x / horLand) * boost;
+            this.velocity.z = (this.velocity.z / horLand) * boost;
+          }
+          // #region agent log
+          fetch("http://127.0.0.1:7291/ingest/e6ca52ac-ce07-4922-9b3f-cd33fd3e1212", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Debug-Session-Id": "485d75",
+            },
+            body: JSON.stringify({
+              sessionId: "485d75",
+              runId: "initial",
+              hypothesisId: "H2",
+              location: "FPSMovementController.ts:update",
+              message: "enter_slide_air",
+              data: {
+                horLand,
+              },
+              timestamp: Date.now(),
+            }),
+          }).catch(() => {});
+          // #endregion
+        } else {
+          this.state = "grounded";
+        }
+        this.slideOnLand = false;
       } else {
         this.position.y = nextY;
       }
@@ -118,13 +201,15 @@ export class FPSMovementController {
       this.yaw = input.yaw;
       this.pitch = input.pitch;
       this.jumpBufferTimer -= dt;
-      this.crouching = false;
+      this.crouching = this.state === "sliding";
       return;
     }
 
-    // grounded: slide only when sprinting + C/Ctrl *just* pressed (enough speed); else crouch or sprint
+    // Slide intent: C pressed sets a short buffer so we don't miss slide entry across ticks; once in slide, no need to hold C
+    if (input.slideJustPressed) this.slideIntentTicks = 8;
     const horSpeed = Math.hypot(this.velocity.x, this.velocity.z);
-    if (input.slideJustPressed && input.sprint && horSpeed >= t.slideEnterSpeed) {
+    if (this.slideIntentTicks > 0 && input.sprint && horSpeed >= t.slideEnterSpeed) {
+      this.slideIntentTicks = 0;
       this.state = "sliding";
       this.slideTime = 0;
       this.crouching = true;
@@ -134,8 +219,30 @@ export class FPSMovementController {
         this.velocity.x = (this.velocity.x / hor) * boost;
         this.velocity.z = (this.velocity.z / hor) * boost;
       }
+      // #region agent log
+      fetch("http://127.0.0.1:7291/ingest/e6ca52ac-ce07-4922-9b3f-cd33fd3e1212", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Debug-Session-Id": "485d75",
+        },
+        body: JSON.stringify({
+          sessionId: "485d75",
+          runId: "initial",
+          hypothesisId: "H1",
+          location: "FPSMovementController.ts:update",
+          message: "enter_slide_ground",
+          data: {
+            horSpeed,
+            slideIntentTicks: this.slideIntentTicks,
+          },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
       return;
     }
+    if (this.slideIntentTicks > 0) this.slideIntentTicks--;
 
     // Sprint takes precedence so "Sprint: true" always means higher velocity. Else crouch or walk.
     const speed = input.sprint
