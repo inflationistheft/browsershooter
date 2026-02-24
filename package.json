@@ -1,0 +1,27 @@
+{
+  "name": "browsershooter",
+  "private": true,
+  "description": "3D Multiplayer Browser Arena-Shooter (Colyseus + Three.js + Rapier)",
+  "scripts": {
+    "dev:client": "npm run dev --prefix client",
+    "dev:server": "npm run dev --prefix server",
+    "dev": "npm run build:shared && concurrently -n server,client -c blue,green \"npm run dev:server\" \"npm run dev:client\"",
+    "build:client": "npm run build --prefix client",
+    "build:server": "npm run build --prefix server",
+    "build:shared": "npm run build --prefix shared",
+    "build": "npm run build:shared && npm run build:client && npm run build:server",
+    "editor": "npm run dev --prefix tools/editor"
+  },
+  "workspaces": [
+    "client",
+    "server",
+    "shared",
+    "tools/editor"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}

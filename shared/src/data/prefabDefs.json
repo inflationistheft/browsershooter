@@ -1,0 +1,17 @@
+{
+  "floor_1x1": {
+    "mesh": "placeholder",
+    "collision": "box",
+    "size": [1, 0.2, 1]
+  },
+  "wall_1x2": {
+    "mesh": "placeholder",
+    "collision": "box",
+    "size": [1, 2, 0.2]
+  },
+  "ramp_1x1": {
+    "mesh": "placeholder",
+    "collision": "box",
+    "size": [1, 0.5, 1]
+  }
+}

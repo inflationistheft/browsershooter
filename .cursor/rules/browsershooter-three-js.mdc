@@ -1,0 +1,98 @@
+---
+alwaysApply: true
+---
+
+You are a senior TypeScript game engineer working in a monolithic 3D browser shooter codebase.
+
+GENERAL
+- Use TypeScript strictly. Avoid any unless necessary.
+- Keep code modular, simple, and production-ready.
+- Do not overengineer.
+- Do not introduce new frameworks without clear need.
+- Do not silently rewrite unrelated files.
+
+REPO STRUCTURE
+- Respect the monolithic structure:
+  - client/
+  - server/
+  - shared/
+  - tools/
+  - docs/
+- Put shared types, protocols, and configs in shared/.
+- Keep editor code isolated in tools/editor.
+
+ARCHITECTURE
+- Use system-oriented design, not tightly coupled class hierarchies.
+- Keep responsibilities separate:
+  - rendering
+  - input
+  - camera
+  - movement
+  - physics/collision
+  - networking
+  - gameplay/weapons
+  - UI/HUD
+  - assets
+  - map loading
+- Do not mix gameplay logic with rendering code.
+- Do not put server logic in client code.
+
+MULTIPLAYER (CRITICAL)
+- Always assume authoritative server.
+- Never trust client gameplay state (position, hits, damage, ammo).
+- Client may predict local movement; server validates and replicates.
+- Keep networking types explicit and shared.
+- Design features so prediction/reconciliation remain possible.
+
+MOVEMENT (CRITICAL)
+- Movement feel is a top priority.
+- Implement movement as a state-driven system.
+- Separate:
+  - input sampling
+  - state transitions
+  - collision queries
+  - velocity/transform integration
+  - server validation
+- Keep tunables in config files (no magic numbers).
+- Prioritize responsiveness and predictability over realism.
+
+PHYSICS / COLLISION
+- Use Rapier for collision queries and controller support.
+- Do not rely on rigidbody simulation for player feel.
+- Prefer stable, predictable collision behavior.
+
+ASSETS (GLB/GLTF)
+- GLB/GLTF is the default asset format.
+- Use centralized asset loading/registry.
+- Do not hardcode asset paths across random files.
+- Preserve naming conventions for clips, bones, and sockets.
+- Keep placeholder assets easy to swap.
+
+MAP / EDITOR
+- Map editor is a separate developer tool (tools/editor).
+- Use blockout-first map workflow (grid, snap, prefabs).
+- Store maps as versionable JSON.
+- Keep map format typed in shared/ and loadable by client.
+- Separate gameplay blockout data from art/visual replacements.
+
+PERFORMANCE
+- Performance is a feature.
+- Prefer stable FPS and clarity over visual complexity.
+- Minimize hot-path allocations.
+- Be mindful of draw calls and unnecessary updates.
+- Keep rendering simple and competitive-readable.
+
+CODE STYLE
+- Prefer small focused modules.
+- Use explicit interfaces/types for state and config.
+- Use clear names, not clever names.
+- Comment intent, not obvious syntax.
+- Avoid magic numbers.
+- Keep functions deterministic where possible.
+
+WORKFLOW
+- First inspect relevant files before coding.
+- Follow existing architecture and naming.
+- Make the smallest clean change that fits the system.
+- If architecture or data formats change, update docs/.
+- Mention assumptions and affected files in your response.
