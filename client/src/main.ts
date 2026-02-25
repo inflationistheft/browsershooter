@@ -13,7 +13,13 @@ import { SceneManager } from "./systems/rendering/SceneManager.js";
 import { createHUD, updateHUD } from "./systems/ui/HUD.js";
 import { createDebugOverlay, updateDebugOverlay } from "./debug/DebugOverlay.js";
 import { WEAPON_STUB } from "./systems/gameplay/WeaponStub.js";
-import { loadPlayerModel, loadDummyModel } from "./systems/assetLoader/AssetLoader.js";
+import {
+  loadPlayerModel,
+  loadDummyModel,
+  loadSkinTexture,
+  applySkinToModel,
+  setModelSkin,
+} from "./systems/assetLoader/AssetLoader.js";
 import { PLAYER_EYE_HEIGHT, CROUCH_EYE_HEIGHT } from "shared";
 
 const app = document.getElementById("app");
@@ -96,30 +102,28 @@ async function initAssets(): Promise<void> {
     loadDummyModel(clientConfig.dummyModelUrl),
   ]);
   playerViewModel = playerModel;
+
+  // Load and apply player skin (PNG from /models/skins/{id}.png)
+  if (clientConfig.playerSkin) {
+    const playerSkinTex = await loadSkinTexture(clientConfig.playerSkin);
+    if (playerSkinTex) applySkinToModel(playerModel, playerSkinTex);
+  }
+
   const cam = cameraSystem.getCamera();
   cam.add(playerModel);
   playerModel.position.set(0, -PLAYER_EYE_HEIGHT * 0.5, -0.4);
   playerModel.rotation.set(0, 0, 0);
   playerModel.scale.setScalar(1);
 
-  // Tint only VanguardBodyMat red (affects all clones), keep visor etc. as-is
-  dummyResult.scene.traverse((obj) => {
-    const mesh = obj as THREE.Mesh;
-    if (!mesh.isMesh) return;
-    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-    for (const mat of materials) {
-      const m = mat as THREE.MeshStandardMaterial;
-      if (!m || !m.color) continue;
-      if (m.name === "VanguardBodyMat") {
-        m.color.setHex(0xff4040);
-      }
-    }
-  });
-
   const idleClip = findIdleClip(dummyResult.animations);
   const scene = sceneManager.getScene();
-  for (const [x, y, z] of DUMMY_POSITIONS) {
+  const skins = clientConfig.dummySkins;
+  for (let i = 0; i < DUMMY_POSITIONS.length; i++) {
+    const [x, y, z] = DUMMY_POSITIONS[i];
     const clone = cloneSkeleton(dummyResult.scene);
+    const skinId = skins[i % skins.length];
+    const skinTex = await loadSkinTexture(skinId);
+    if (skinTex) applySkinToModel(clone, skinTex);
     clone.position.set(x, y, z);
     scene.add(clone);
     dummyMeshes.push(clone);
@@ -163,4 +167,12 @@ window.addEventListener("resize", () => {
   sceneManager.resize(w, h);
 });
 
-initAssets().then(() => loop.start());
+initAssets().then(() => {
+  loop.start();
+  // Dev: setPlayerSkin('orange') in console to change player skin at runtime
+  if (clientConfig.debugOverlay && typeof window !== "undefined") {
+    (window as { setPlayerSkin?: (id: string) => void }).setPlayerSkin = (id: string) => {
+      if (playerViewModel) setModelSkin(playerViewModel, id);
+    };
+  }
+});

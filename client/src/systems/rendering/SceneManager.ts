@@ -15,24 +15,27 @@ export class SceneManager {
     const w = canvas.clientWidth || window.innerWidth;
     const h = canvas.clientHeight || window.innerHeight;
     this.renderer.setSize(w, h);
-    this.renderer.setClearColor(0x1a1a2e);
+    this.renderer.setClearColor(0x2a2a35);
 
-    this.scene.background = new THREE.Color(0x1a1a2e);
-    const ambient = new THREE.AmbientLight(0x404060, 0.6);
+    this.scene.background = new THREE.Color(0x2a2a35);
+    const ambient = new THREE.AmbientLight(0xffffff, 0.65);
     this.scene.add(ambient);
-    const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+    const dir = new THREE.DirectionalLight(0xffffff, 0.9);
     dir.position.set(10, 20, 10);
     this.scene.add(dir);
 
     const floorGeo = new THREE.PlaneGeometry(40, 40);
-    const floorMat = new THREE.MeshStandardMaterial({ color: 0x2d2d44 });
+    const floorMat = new THREE.MeshStandardMaterial({ color: 0xd8d8dc });
     this.floor = new THREE.Mesh(floorGeo, floorMat);
     this.floor.rotation.x = -Math.PI / 2;
     this.scene.add(this.floor);
+    const gridHelper = new THREE.GridHelper(40, 40, 0x8a8a94, 0xa8a8b0);
+    gridHelper.position.y = 0.001;
+    this.scene.add(gridHelper);
 
     // Simple walls (test arena)
     const wallGeo = new THREE.BoxGeometry(40, 4, 0.5);
-    const wallMat = new THREE.MeshStandardMaterial({ color: 0x3d3d5c });
+    const wallMat = new THREE.MeshStandardMaterial({ color: 0xd8d8dc });
     for (const [x, z] of [[0, 20], [0, -20], [20, 0], [-20, 0]]) {
       const w = new THREE.Mesh(wallGeo, wallMat);
       w.position.set(x, 2, z);

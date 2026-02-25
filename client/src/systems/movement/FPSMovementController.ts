@@ -39,6 +39,8 @@ export class FPSMovementController {
   private slideOnLand = false;
   /** Time spent sprinting (ground only); must exceed slideEnterMinSprintTime before ground slide. */
   private sprintWarmupTime = 0;
+  /** Grace after releasing Shift – can still enter slide while speed remains high. */
+  private sprintReleaseGrace = 0;
   /** Seconds left before slide jump can be used again. */
   private slideJumpCooldownTimer = 0;
   /** Max horizontal speed in air (preserved from jump; no gain in air). */
@@ -169,14 +171,21 @@ export class FPSMovementController {
       return;
     }
 
-    // Ground slide: only when sprinting + warmup >= 150ms (Apex-style); slide gives small speed boost
-    if (input.sprint) this.sprintWarmupTime += dt;
-    else this.sprintWarmupTime = 0;
+    // Ground slide: sprinting (or brief grace after release) + warmup; slide gives speed boost
+    if (input.sprint) {
+      this.sprintWarmupTime += dt;
+      this.sprintReleaseGrace = t.slideSprintReleaseGrace;
+    } else {
+      this.sprintWarmupTime = 0;
+      this.sprintReleaseGrace = Math.max(0, this.sprintReleaseGrace - dt);
+    }
+    const hadRecentSprint = input.sprint || this.sprintReleaseGrace > 0;
+    const warmupOk = this.sprintWarmupTime >= t.slideEnterMinSprintTime || this.sprintReleaseGrace > 0;
     const horSpeed = Math.hypot(this.velocity.x, this.velocity.z);
     const canGroundSlide =
       input.slideIntentTicks > 0 &&
-      input.sprint &&
-      this.sprintWarmupTime >= t.slideEnterMinSprintTime &&
+      hadRecentSprint &&
+      warmupOk &&
       horSpeed >= t.slideEnterSpeed;
     if (canGroundSlide) {
       this.state = "sliding";

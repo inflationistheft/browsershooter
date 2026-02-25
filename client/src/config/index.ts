@@ -15,4 +15,10 @@ export const clientConfig = {
   /** GLB URLs for player (FPS view model) and dummies. Override via .env: VITE_PLAYER_MODEL_URL, VITE_DUMMY_MODEL_URL */
   playerModelUrl: (import.meta as unknown as { env?: { VITE_PLAYER_MODEL_URL?: string } }).env?.VITE_PLAYER_MODEL_URL ?? "/models/player.glb",
   dummyModelUrl: (import.meta as unknown as { env?: { VITE_DUMMY_MODEL_URL?: string } }).env?.VITE_DUMMY_MODEL_URL ?? "/models/dummy.glb",
+
+  /** Skin ID for player (PNG in /models/skins/{id}.png). Empty = use embedded GLB texture. */
+  playerSkin: ((import.meta as unknown as { env?: { VITE_PLAYER_SKIN?: string } }).env?.VITE_PLAYER_SKIN ?? "").trim(),
+
+  /** Skin IDs for dummies (one per position). "" = embedded GLB, else /models/skins/{id}.png */
+  dummySkins: ["", "orange", "purple"] as const,
 };
