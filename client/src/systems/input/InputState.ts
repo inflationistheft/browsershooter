@@ -10,6 +10,8 @@ export interface InputState {
   slide: boolean;
   /** True only on the first frame when slide key went down (so we don't enter slide from holding C from start). */
   slideJustPressed: boolean;
+  /** Ticks remaining where slide can trigger (set on keydown so short taps are not missed). */
+  slideIntentTicks: number;
   yaw: number;
   pitch: number;
   shoot: boolean;
@@ -23,6 +25,7 @@ export const defaultInputState: InputState = {
   jump: false,
   slide: false,
   slideJustPressed: false,
+  slideIntentTicks: 0,
   yaw: 0,
   pitch: 0,
   shoot: false,
@@ -56,6 +59,8 @@ export class InputSampler {
   /** Keys currently held (code string). Sprint/slide derived from this so they are not overwritten by other key events. */
   private keysDown = new Set<string>();
   private slideWasDown = false;
+  /** Event-driven: set on keydown so short taps (keydown+keyup within one frame) are not missed. */
+  private _slideIntentTicks = 0;
 
   getState(): Readonly<InputState> {
     this.state.sprint =
@@ -64,30 +69,13 @@ export class InputSampler {
     this.state.slideJustPressed = slideNow && !this.slideWasDown;
     this.slideWasDown = slideNow;
     this.state.slide = slideNow;
-    if (this.state.slideJustPressed) {
-      // #region agent log
-      fetch("http://127.0.0.1:7291/ingest/e6ca52ac-ce07-4922-9b3f-cd33fd3e1212", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Debug-Session-Id": "485d75",
-        },
-        body: JSON.stringify({
-          sessionId: "485d75",
-          runId: "initial",
-          hypothesisId: "H1",
-          location: "InputState.ts:getState",
-          message: "slideJustPressed",
-          data: {
-            slideNow,
-            sprint: this.state.sprint,
-          },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
-    }
+    this.state.slideIntentTicks = this._slideIntentTicks;
     return this.state;
+  }
+
+  /** Call once per tick; decrements slide intent. */
+  tick(): void {
+    if (this._slideIntentTicks > 0) this._slideIntentTicks--;
   }
 
   isPointerLocked(): boolean {
@@ -113,6 +101,7 @@ export class InputSampler {
       if (this.pointerLocked) {
         this.keysDown.clear();
         this.slideWasDown = false;
+        this._slideIntentTicks = 0;
       } else {
         if (navigator.keyboard?.unlock) navigator.keyboard.unlock();
       }
@@ -146,13 +135,23 @@ export class InputSampler {
   private syncModifiers(_sprint: boolean, _slide: boolean): void {
     this.keysDown.clear();
     this.slideWasDown = false;
+    this._slideIntentTicks = 0;
+  }
+
+  private isSlideKey(code: string): boolean {
+    return code === "ControlLeft" || code === "ControlRight" || code === "KeyC";
   }
 
   private onKey(code: string, down: boolean, e?: KeyboardEvent): void {
     if (!e) return;
     const key = e.key?.toLowerCase();
-    if (down) this.keysDown.add(code);
-    else this.keysDown.delete(code);
+    if (down) {
+      this.keysDown.add(code);
+      // Event-driven: capture short taps even if keyup happens before next tick
+      if (this.isSlideKey(code)) this._slideIntentTicks = Math.max(this._slideIntentTicks, 10);
+    } else {
+      this.keysDown.delete(code);
+    }
     if (code === "KeyW") this.state.moveZ = down ? 1 : (this.state.moveZ === 1 ? 0 : this.state.moveZ);
     if (code === "KeyS") this.state.moveZ = down ? -1 : (this.state.moveZ === -1 ? 0 : this.state.moveZ);
     if (code === "KeyA") this.state.moveX = down ? -1 : (this.state.moveX === -1 ? 0 : this.state.moveX);

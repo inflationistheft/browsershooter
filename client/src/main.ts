@@ -67,6 +67,10 @@ if (clientConfig.debugOverlay) createDebugOverlay(app);
 const physics = { raycast: (): boolean => false };
 const loop = new GameLoop();
 
+/** Smoothed eye height for crouch transition (120ms). */
+let currentEyeHeight = PLAYER_EYE_HEIGHT;
+const CROUCH_TRANSITION_TAU = 0.04; // ~120ms to 95%
+
 // Player model (FPS): attached to camera
 let playerViewModel: THREE.Object3D | null = null;
 // Dummies: in scene, each with Idle animation
@@ -131,9 +135,15 @@ loop
   .setTickCallback((dt) => {
     const state = input.getState();
     movement.update(dt, state, physics);
+    input.tick();
     const snap = movement.getSnapshot();
-    const eyeHeight = snap.crouching ? CROUCH_EYE_HEIGHT : PLAYER_EYE_HEIGHT;
-    cameraSystem.setTargetPosition(snap.position.x, snap.position.y + eyeHeight, snap.position.z);
+    const targetEyeHeight = snap.crouching ? CROUCH_EYE_HEIGHT : PLAYER_EYE_HEIGHT;
+    currentEyeHeight = THREE.MathUtils.lerp(
+      currentEyeHeight,
+      targetEyeHeight,
+      1 - Math.exp(-dt / CROUCH_TRANSITION_TAU)
+    );
+    cameraSystem.setTargetPosition(snap.position.x, snap.position.y + currentEyeHeight, snap.position.z);
     cameraSystem.setRotation(snap.yaw, snap.pitch);
   })
   .setRenderCallback((dt) => {
