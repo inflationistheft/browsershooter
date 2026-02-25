@@ -36,7 +36,7 @@ export const defaultInputState: InputState = {
 const LOCK_KEYS_FOR_BROWSER_SHORTCUTS = ["KeyW", "KeyN", "KeyT"];
 
 /** Block Ctrl+W / Ctrl+N / Ctrl+T in capture phase so tab doesn't close when pointer locked. */
-function installCaptureShortcutBlocker(getPointerLocked: () => boolean): void {
+function installCaptureShortcutBlocker(_getPointerLocked: () => boolean): void {
   document.addEventListener(
     "keydown",
     (e: KeyboardEvent) => {
@@ -62,6 +62,10 @@ export class InputSampler {
   /** Event-driven: set on keydown so short taps (keydown+keyup within one frame) are not missed. */
   private _slideIntentTicks = 0;
 
+  /**
+   * Returns the current input state. Same object reference every call; contents are mutated in place.
+   * Do not mutate or store – consume synchronously and discard. For async/copy use cases, clone first.
+   */
   getState(): Readonly<InputState> {
     this.state.sprint =
       this.keysDown.has("ShiftLeft") || this.keysDown.has("ShiftRight") || this.keysDown.has("ArrowUp");

@@ -2,7 +2,7 @@
  * Main game loop: fixed tick for simulation, variable frame for render.
  */
 
-const TICK_MS = 1000 / 30; // align with shared TICK_RATE later
+import { TICK_MS } from "shared";
 
 export type TickCallback = (dt: number) => void;
 export type RenderCallback = (dt: number) => void;

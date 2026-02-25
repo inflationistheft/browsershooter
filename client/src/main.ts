@@ -25,20 +25,6 @@ import { PLAYER_EYE_HEIGHT, CROUCH_EYE_HEIGHT } from "shared";
 const app = document.getElementById("app");
 if (!app) throw new Error("No #app");
 
-// Block Ctrl+W/N/T as early as possible so browser doesn't close tab (capture phase, first listener).
-window.addEventListener(
-  "keydown",
-  (e: KeyboardEvent) => {
-    const code = e.code;
-    const key = e.key?.toLowerCase();
-    if (e.ctrlKey && (code === "KeyW" || code === "KeyN" || code === "KeyT" || key === "w" || key === "n" || key === "t")) {
-      e.preventDefault();
-      e.stopImmediatePropagation();
-    }
-  },
-  { capture: true }
-);
-
 const canvas = document.createElement("canvas");
 app.appendChild(canvas);
 

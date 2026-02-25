@@ -1,10 +1,13 @@
 /**
- * Debug overlay stub: FPS, velocity, state.
+ * Debug overlay stub: FPS, velocity, state. DOM updates throttled to 10 Hz.
  */
 
 let frameCount = 0;
 let lastTime = performance.now();
+let lastUpdateTime = 0;
 let fps = 0;
+
+const UPDATE_INTERVAL_MS = 100; // 10 Hz
 
 export function createDebugOverlay(container: HTMLElement): void {
   const el = document.createElement("div");
@@ -29,6 +32,9 @@ export function updateDebugOverlay(
     frameCount = 0;
     lastTime = now;
   }
+  if (now - lastUpdateTime < UPDATE_INTERVAL_MS) return;
+  lastUpdateTime = now;
+
   const el = document.getElementById("debug-overlay");
   if (el) {
     const sprintStr = sprint !== undefined ? ` | Sprint: ${sprint}` : "";

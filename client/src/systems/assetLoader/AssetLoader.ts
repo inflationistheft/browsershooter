@@ -53,12 +53,17 @@ export async function loadDummyModel(url: string): Promise<DummyLoadResult> {
 
 const SKINS_BASE = "/models/skins";
 
-/** Load skin texture from /models/skins/{id}.png. Returns null if load fails (use embedded). */
+const skinTextureCache = new Map<string, THREE.Texture>();
+
+/** Load skin texture from /models/skins/{id}.png. Returns null if load fails (use embedded). Caches by skinId. */
 export async function loadSkinTexture(skinId: string): Promise<THREE.Texture | null> {
   if (!skinId) return null;
+  const cached = skinTextureCache.get(skinId);
+  if (cached) return cached;
   try {
     const texture = await textureLoader.loadAsync(`${SKINS_BASE}/${skinId}.png`);
     texture.flipY = false;
+    skinTextureCache.set(skinId, texture);
     return texture;
   } catch {
     return null;

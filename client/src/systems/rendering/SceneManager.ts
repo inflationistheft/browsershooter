@@ -3,6 +3,7 @@
  */
 
 import * as THREE from "three";
+import { ARENA_SIZE, ARENA_HALF } from "shared";
 
 export class SceneManager {
   readonly scene = new THREE.Scene();
@@ -24,19 +25,19 @@ export class SceneManager {
     dir.position.set(10, 20, 10);
     this.scene.add(dir);
 
-    const floorGeo = new THREE.PlaneGeometry(40, 40);
+    const floorGeo = new THREE.PlaneGeometry(ARENA_SIZE, ARENA_SIZE);
     const floorMat = new THREE.MeshStandardMaterial({ color: 0xd8d8dc });
     this.floor = new THREE.Mesh(floorGeo, floorMat);
     this.floor.rotation.x = -Math.PI / 2;
     this.scene.add(this.floor);
-    const gridHelper = new THREE.GridHelper(40, 40, 0x8a8a94, 0xa8a8b0);
+    const gridHelper = new THREE.GridHelper(ARENA_SIZE, ARENA_SIZE, 0x8a8a94, 0xa8a8b0);
     gridHelper.position.y = 0.001;
     this.scene.add(gridHelper);
 
-    // Simple walls (test arena)
-    const wallGeo = new THREE.BoxGeometry(40, 4, 0.5);
+    // Simple walls (test arena) – positions from shared arena
+    const wallGeo = new THREE.BoxGeometry(ARENA_SIZE, 4, 0.5);
     const wallMat = new THREE.MeshStandardMaterial({ color: 0xd8d8dc });
-    for (const [x, z] of [[0, 20], [0, -20], [20, 0], [-20, 0]]) {
+    for (const [x, z] of [[0, ARENA_HALF], [0, -ARENA_HALF], [ARENA_HALF, 0], [-ARENA_HALF, 0]]) {
       const w = new THREE.Mesh(wallGeo, wallMat);
       w.position.set(x, 2, z);
       if (z === 0) w.rotation.y = Math.PI / 2;

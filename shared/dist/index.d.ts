@@ -2,4 +2,5 @@ export * from "./types/index.js";
 export * from "./protocol/messages.js";
 export * from "./constants/index.js";
 export * from "./tuning/index.js";
+export * from "./arena/index.js";
 //# sourceMappingURL=index.d.ts.map

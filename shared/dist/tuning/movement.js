@@ -16,35 +16,24 @@ export const movementTuning = {
     jumpForce: 11,
     coyoteTime: 0.12,
     jumpBufferTime: 0.12,
-    slideInitialSpeed: 13,
-    /** Entry speed multiplier: slide gives ~15% boost (Apex-style). */
-    slideSpeedBoost: 1.15,
-    slideDecay: 0.95,
+    slideInitialSpeed: 15,
+    /** Entry speed multiplier: slide gives noticeable boost. */
+    slideSpeedBoost: 1.25,
+    slideDecay: 0.97,
     slideMinSpeed: 2,
-    slideDurationMax: 1.4,
+    slideDurationMax: 1.8,
     /** Min horizontal speed to enter slide. */
     slideEnterSpeed: 6,
     /** Min time sprinting before ground slide allowed (Apex-style warmup). */
     slideEnterMinSprintTime: 0.15,
+    /** Grace (s) after releasing Shift – can still enter slide while speed is high. */
+    slideSprintReleaseGrace: 0.2,
     maxSpeedCrouch: 3,
     slideJumpMultiplier: 1.25,
     /** Cooldown in seconds before slide jump can be used again. */
     slideJumpCooldown: 2,
-    /** Time window (s) after wall contact to press Space for bounce. */
     wallBounceWindow: 0.2,
-    /** Multiplier on reflected horizontal speed. >1 = boost for snappier feel. */
-    wallBounceReflectFactor: 1.3,
-    /** Max horizontal speed after bounce – can exceed airMaxSpeed for stronger feel. */
-    wallBounceMaxSpeed: 18,
-    /** Min horizontal speed into wall to allow bounce (prevents glitchy bounces when standing). */
+    wallBounceReflectFactor: 0.85,
     wallBounceSpeedMin: 6,
-    /** Vertical jump on bounce – enough to feel the push; main force is horizontal reflection. */
-    wallBounceVerticalBoost: 6,
-    /** Cooldown (s) per bounce – spam protection. */
-    wallBounceCooldown: 0.2,
-    /** Min Y above ground – no bounce when too low (ground glitches). */
-    wallBounceHeightMin: 0.5,
-    /** Max Y above ground – no bounce when too high (unrealistic). */
-    wallBounceHeightMax: 3.5,
     maxFallSpeed: 55,
 };
