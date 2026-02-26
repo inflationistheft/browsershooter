@@ -12,4 +12,12 @@ export declare const PLAYER_EYE_HEIGHT = 1.6;
 /** Eye height when crouching (camera lower). */
 export declare const CROUCH_EYE_HEIGHT = 1;
 export declare const DEFAULT_MAX_HEALTH = 100;
+/** Hitscan: sphere center height above feet (meters). */
+export declare const PLAYER_HITBOX_CENTER_HEIGHT = 0.9;
+/** Hitscan: max range in meters. */
+export declare const HITSCAN_RANGE = 200;
+/** Damage per hit. */
+export declare const HITSCAN_DAMAGE = 25;
+/** Reload duration in ticks (30 Hz). ~1.5 s. */
+export declare const RELOAD_TICKS = 45;
 //# sourceMappingURL=index.d.ts.map

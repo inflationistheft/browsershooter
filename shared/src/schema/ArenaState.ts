@@ -1,10 +1,10 @@
 /**
- * Colyseus schema for arena room state. Schema-first with TypeScript.
+ * Colyseus schema for arena room state. Shared by client and server.
  */
 
 import { Schema, type, MapSchema } from "@colyseus/schema";
 
-export class PlayerState extends Schema {
+export class PlayerStateSchema extends Schema {
   @type("string") id = "";
   @type("number") x = 0;
   @type("number") y = 0;
@@ -23,5 +23,5 @@ export class PlayerState extends Schema {
 }
 
 export class ArenaState extends Schema {
-  @type({ map: PlayerState }) players = new MapSchema<PlayerState>();
+  @type({ map: PlayerStateSchema }) players = new MapSchema<PlayerStateSchema>();
 }

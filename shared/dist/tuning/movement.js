@@ -16,10 +16,12 @@ export const movementTuning = {
     jumpForce: 11,
     coyoteTime: 0.12,
     jumpBufferTime: 0.12,
-    slideInitialSpeed: 15,
-    /** Entry speed multiplier: slide gives noticeable boost. */
-    slideSpeedBoost: 1.25,
-    slideDecay: 0.97,
+    /** Slightly faster than sprint (11); Apex-like modest boost. */
+    slideInitialSpeed: 12,
+    /** Entry speed multiplier: noticeable but not excessive boost. */
+    slideSpeedBoost: 1.1,
+    /** Slightly stronger decay = shorter slide distance. */
+    slideDecay: 0.95,
     slideMinSpeed: 2,
     slideDurationMax: 1.8,
     /** Min horizontal speed to enter slide. */
