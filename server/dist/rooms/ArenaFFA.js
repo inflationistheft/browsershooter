@@ -2,7 +2,7 @@
  * FFA Arena room: tick loop, state sync, placeholder movement.
  */
 import { Room } from "@colyseus/core";
-import { movementTuning, resolveArenaWalls, applyWallVelocitySlide, PLAYER_RADIUS, PLAYER_EYE_HEIGHT, PLAYER_HITBOX_CENTER_HEIGHT, HITSCAN_RANGE, HITSCAN_DAMAGE, RELOAD_TICKS, DEFAULT_MAX_HEALTH, } from "shared";
+import { movementTuning, resolveArenaWalls, applyWallVelocitySlide, resolveAnimationClipId, PLAYER_RADIUS, PLAYER_EYE_HEIGHT, PLAYER_HITBOX_CENTER_HEIGHT, HITSCAN_RANGE, HITSCAN_DAMAGE, RELOAD_TICKS, DEFAULT_MAX_HEALTH, } from "shared";
 import { ArenaState, PlayerStateSchema } from "shared";
 import { serverConfig } from "../config/index.js";
 export class ArenaFFARoom extends Room {
@@ -32,9 +32,11 @@ export class ArenaFFARoom extends Room {
         state.ammo = 30;
         state.maxAmmo = 30;
         this.state.players.set(client.id, state);
+        console.log(`[ArenaFFA] Client ${client.id} joined. Players in room: ${this.state.players.size}`);
     }
     onLeave(client) {
         this.state.players.delete(client.id);
+        console.log(`[ArenaFFA] Client ${client.id} left. Players in room: ${this.state.players.size}`);
     }
     onInput(client, message) {
         const player = this.state.players.get(client.id);
@@ -122,6 +124,19 @@ export class ArenaFFARoom extends Room {
                 applyWallVelocitySlide(vel, wall);
                 player.vx = vel.x;
                 player.vz = vel.z;
+                const animId = resolveAnimationClipId({
+                    moveX: lastInput.moveX ?? 0,
+                    moveZ: lastInput.moveZ ?? 0,
+                    sprint: lastInput.sprint ?? false,
+                    crouching: lastInput.slide ?? false,
+                    movementState: player.movementState,
+                });
+                player.animationState = animId;
+                const isStrafeFast = animId === "strafeLeftFast" || animId === "strafeRightFast";
+                player.animationTimeScale = isStrafeFast && !(lastInput.sprint ?? false) ? 0.7 : 1;
+            }
+            else {
+                player.animationState = "idle";
             }
             if (lastInput?.shoot &&
                 player.ammo > 0 &&

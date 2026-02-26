@@ -19,6 +19,10 @@ export const clientConfig = {
   /** Skin ID for player (PNG in /models/skins/{id}.png). Empty = use embedded GLB texture. */
   playerSkin: ((import.meta as unknown as { env?: { VITE_PLAYER_SKIN?: string } }).env?.VITE_PLAYER_SKIN ?? "").trim(),
 
-  /** Skin IDs for dummies (one per position). "" = embedded GLB, else /models/skins/{id}.png */
-  dummySkins: ["", "orange", "purple"] as const,
+  /**
+   * Override animation clip names if your GLB uses different names.
+   * Keys: idle, walk, walkBackwards, strafeLeft, strafeRight, strafeLeftFast, strafeRightFast,
+   * run, jump, slide, crouchForward, crouchBackward, crouchLeft, crouchRight.
+   */
+  animationClipNames: {} as Partial<Record<string, string>>,
 };

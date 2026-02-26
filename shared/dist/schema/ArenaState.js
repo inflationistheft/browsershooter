@@ -24,6 +24,10 @@ export class PlayerStateSchema extends Schema {
         this.vy = 0;
         this.vz = 0;
         this.movementState = "grounded";
+        /** Animation clip ID from resolveAnimationClipId (idle, walk, run, jump, etc.). */
+        this.animationState = "idle";
+        /** Playback scale for strafe clips (0.7 when not sprinting, 1 when sprinting). */
+        this.animationTimeScale = 1;
         this.health = 100;
         this.maxHealth = 100;
         this.currentWeapon = "rifle";
@@ -71,6 +75,14 @@ __decorate([
     type("string"),
     __metadata("design:type", Object)
 ], PlayerStateSchema.prototype, "movementState", void 0);
+__decorate([
+    type("string"),
+    __metadata("design:type", Object)
+], PlayerStateSchema.prototype, "animationState", void 0);
+__decorate([
+    type("number"),
+    __metadata("design:type", Object)
+], PlayerStateSchema.prototype, "animationTimeScale", void 0);
 __decorate([
     type("number"),
     __metadata("design:type", Object)

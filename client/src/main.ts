@@ -11,10 +11,16 @@ import { FPSCamera } from "./systems/camera/FPSCamera.js";
 import { FPSMovementController } from "./systems/movement/FPSMovementController.js";
 import { SceneManager } from "./systems/rendering/SceneManager.js";
 import { createHUD, updateHUD } from "./systems/ui/HUD.js";
+import {
+  createLoadingScreen,
+  setLoadingMessage,
+  hideLoadingScreen,
+} from "./systems/ui/LoadingScreen.js";
 import { createDebugOverlay, updateDebugOverlay } from "./debug/DebugOverlay.js";
 import { WEAPON_STUB } from "./systems/gameplay/WeaponStub.js";
 import { ColyseusClient } from "./systems/networking/ColyseusClient.js";
 import { inputStateToPlayerInput } from "./systems/networking/inputMapping.js";
+import { resolveAnimationClipId } from "shared";
 import type { ArenaState, PlayerStateSchema } from "shared";
 import {
   loadPlayerModel,
@@ -24,6 +30,7 @@ import {
   setModelSkin,
   createPlaceholderMesh,
 } from "./systems/assetLoader/AssetLoader.js";
+import { PlayerAnimationSystem } from "./systems/animation/PlayerAnimationSystem.js";
 import { PLAYER_EYE_HEIGHT, CROUCH_EYE_HEIGHT, DEFAULT_MAX_HEALTH } from "shared";
 
 const app = document.getElementById("app");
@@ -46,17 +53,25 @@ cameraSystem.resize(initW, initH);
 const input = new InputSampler();
 input.requestPointerLock(canvas);
 
+function onPageUnload(): void {
+  netClient.disconnect();
+}
 window.addEventListener("beforeunload", (e) => {
+  onPageUnload();
   if (input.isPointerLocked()) {
     e.preventDefault();
     (e as { returnValue: string }).returnValue = "";
   }
 });
+window.addEventListener("pagehide", onPageUnload);
+const hot = (import.meta as { hot?: { dispose: (cb: () => void) => void } }).hot;
+if (hot?.dispose) hot.dispose(onPageUnload);
 
 canvas.addEventListener("mousedown", (e) => e.button === 0 && input.setShoot(true));
 canvas.addEventListener("mouseup", (e) => e.button === 0 && input.setShoot(false));
 
 const movement = new FPSMovementController();
+createLoadingScreen(app);
 createHUD(app);
 if (clientConfig.debugOverlay) createDebugOverlay(app);
 
@@ -71,12 +86,12 @@ const CROUCH_TRANSITION_TAU = 0.04; // ~120ms to 95%
 
 // Player model (FPS): attached to camera
 let playerViewModel: THREE.Object3D | null = null;
-// Dummies: in scene, each with Idle animation
-const dummyMeshes: THREE.Object3D[] = [];
-const dummyMixers: THREE.AnimationMixer[] = [];
+/** Mixer for local FPS view model (only when using same GLB as dummy). */
+let localPlayerMixer: THREE.AnimationMixer | null = null;
 /** Template for cloning remote players (same model as dummies). */
 let dummyTemplate: THREE.Object3D | null = null;
 let dummyIdleClip: THREE.AnimationClip | undefined;
+let playerAnimationSystem: PlayerAnimationSystem;
 /** Remote players: sessionId -> { mesh, mixer } */
 const remotePlayerMeshes = new Map<string, THREE.Object3D>();
 const remotePlayerMixers = new Map<string, THREE.AnimationMixer>();
@@ -86,9 +101,8 @@ const REMOTE_INTERP_TAU = 0.05;
 const RECONCILE_THRESHOLD = 0.5;
 /** Blend factor when reconciling (higher = faster correction). */
 const RECONCILE_LERP = 0.25;
-/** Dummy positions in meters (1 unit = 1 m); y = 0 = Boden (GLB-Origin typisch an den Füßen). */
-const DUMMY_POSITIONS: [number, number, number][] = [[5, 0, 5], [-4, 0, 6], [3, 0, -5]];
-
+/** True after we have applied initial spawn from server (fallback for late state sync). */
+let hasAppliedInitialSpawn = false;
 /** Idle = "idleaiming" (zusammengeschrieben) oder "idle aiming", case-insensitive; sonst "idle", sonst erster Clip. */
 function findIdleClip(animations: THREE.AnimationClip[]): THREE.AnimationClip | undefined {
   if (!animations.length) return undefined;
@@ -101,10 +115,27 @@ function findIdleClip(animations: THREE.AnimationClip[]): THREE.AnimationClip | 
 }
 
 async function initAssets(): Promise<void> {
-  const [playerModel, dummyResult] = await Promise.all([
-    loadPlayerModel(clientConfig.playerModelUrl),
-    loadDummyModel(clientConfig.dummyModelUrl),
-  ]);
+  setLoadingMessage("Loading characters and arena…", 15);
+  const useSameModel =
+    clientConfig.playerModelUrl === clientConfig.dummyModelUrl &&
+    clientConfig.playerModelUrl.trim() !== "";
+
+  let playerModel: THREE.Object3D;
+  let dummyResult: { scene: THREE.Object3D; animations: THREE.AnimationClip[] };
+
+  if (useSameModel) {
+    dummyResult = await loadDummyModel(clientConfig.dummyModelUrl);
+    playerModel = cloneSkeleton(dummyResult.scene);
+    playerModel.updateMatrixWorld(true);
+  } else {
+    const [pm, dr] = await Promise.all([
+      loadPlayerModel(clientConfig.playerModelUrl),
+      loadDummyModel(clientConfig.dummyModelUrl),
+    ]);
+    playerModel = pm;
+    dummyResult = dr;
+  }
+
   playerViewModel = playerModel;
 
   // Load and apply player skin (PNG from /models/skins/{id}.png)
@@ -119,25 +150,16 @@ async function initAssets(): Promise<void> {
   playerModel.rotation.set(0, 0, 0);
   playerModel.scale.setScalar(1);
 
+  setLoadingMessage("Loading characters and arena…", 40);
   const idleClip = findIdleClip(dummyResult.animations);
   dummyTemplate = dummyResult.scene;
   dummyIdleClip = idleClip;
-  const scene = sceneManager.getScene();
-  const skins = clientConfig.dummySkins;
-  for (let i = 0; i < DUMMY_POSITIONS.length; i++) {
-    const [x, y, z] = DUMMY_POSITIONS[i];
-    const clone = cloneSkeleton(dummyResult.scene);
-    const skinId = skins[i % skins.length];
-    const skinTex = await loadSkinTexture(skinId);
-    if (skinTex) applySkinToModel(clone, skinTex);
-    clone.position.set(x, y, z);
-    scene.add(clone);
-    dummyMeshes.push(clone);
-    if (idleClip) {
-      const mixer = new THREE.AnimationMixer(clone);
-      mixer.clipAction(idleClip).play();
-      dummyMixers.push(mixer);
-    }
+  playerAnimationSystem = new PlayerAnimationSystem(clientConfig.animationClipNames);
+  playerAnimationSystem.init(dummyResult.animations);
+
+  if (useSameModel && dummyResult.animations.length > 0) {
+    localPlayerMixer = new THREE.AnimationMixer(playerModel);
+    playerAnimationSystem.playClip(localPlayerMixer, "idle");
   }
 }
 
@@ -165,11 +187,9 @@ function addRemotePlayerMesh(
   clone.rotation.set(0, player.yaw + Math.PI, 0);
   scene.add(clone);
   remotePlayerMeshes.set(key, clone);
-  if (dummyIdleClip) {
-    const mixer = new THREE.AnimationMixer(clone);
-    mixer.clipAction(dummyIdleClip).play();
-    remotePlayerMixers.set(key, mixer);
-  }
+  const mixer = new THREE.AnimationMixer(clone);
+  playerAnimationSystem.playClip(mixer, player.animationState || "idle");
+  remotePlayerMixers.set(key, mixer);
 }
 
 function removeRemotePlayerMesh(key: string): void {
@@ -197,12 +217,38 @@ function syncLocalSpawnFromServer(room: { sessionId: string; state: ArenaState }
   movement.velocity.z = localState.vz;
   movement.yaw = localState.yaw;
   movement.pitch = localState.pitch;
+  hasAppliedInitialSpawn = true;
+}
+
+/** Wait for local player to appear in room state, then sync spawn. Resolves immediately if already present. */
+function waitForLocalSpawnAndSync(
+  room: { sessionId: string; state: ArenaState }
+): Promise<void> {
+  const localState = room.state.players.get(room.sessionId);
+  if (localState) {
+    syncLocalSpawnFromServer(room);
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    const handler = (_player: PlayerStateSchema, key: string) => {
+      if (key === room.sessionId) {
+        removeOnAdd();
+        syncLocalSpawnFromServer(room);
+        resolve();
+      }
+    };
+    const removeOnAdd = room.state.players.onAdd(handler, true);
+  });
 }
 
 function reconcileLocalWithServer(room: { sessionId: string; state: ArenaState } | null): void {
   if (!room) return;
   const localState = room.state.players.get(room.sessionId);
   if (!localState) return;
+  if (!hasAppliedInitialSpawn) {
+    syncLocalSpawnFromServer(room);
+    return;
+  }
   const dx = localState.x - movement.position.x;
   const dy = localState.y - movement.position.y;
   const dz = localState.z - movement.position.z;
@@ -259,6 +305,14 @@ function updateRemotePlayers(
       const targetYaw = player.yaw + Math.PI;
       const dy = ((targetYaw - mesh.rotation.y + Math.PI) % (2 * Math.PI)) - Math.PI;
       mesh.rotation.y += dy * alpha;
+      const mixer = remotePlayerMixers.get(key);
+      if (mixer) {
+        const clipId = player.animationState || "idle";
+        const ctx: { vy?: number; sprint?: boolean; timeScale?: number } = {};
+        if (clipId === "jump") ctx.vy = player.vy;
+        if (player.animationTimeScale !== 1) ctx.timeScale = player.animationTimeScale;
+        playerAnimationSystem.playClip(mixer, clipId, Object.keys(ctx).length ? ctx : undefined);
+      }
     }
   });
 
@@ -293,8 +347,23 @@ loop
     cameraSystem.setRotation(snap.yaw, snap.pitch);
   })
   .setRenderCallback((dt) => {
+    const state = input.getState();
+    const snap = movement.getSnapshot();
+    if (localPlayerMixer) {
+      const clipId = resolveAnimationClipId({
+        moveX: state.moveX,
+        moveZ: state.moveZ,
+        sprint: state.sprint,
+        crouching: snap.crouching,
+        movementState: snap.state,
+      });
+      const ctx: { vy?: number; sprint?: boolean } = {};
+      if (clipId === "jump") ctx.vy = snap.velocity.y;
+      if (clipId === "strafeLeftFast" || clipId === "strafeRightFast") ctx.sprint = state.sprint;
+      playerAnimationSystem.playClip(localPlayerMixer, clipId, Object.keys(ctx).length ? ctx : undefined);
+    }
     cameraSystem.update(dt);
-    dummyMixers.forEach((m) => m.update(dt));
+    if (localPlayerMixer) localPlayerMixer.update(dt);
     remotePlayerMixers.forEach((m) => m.update(dt));
     updateRemotePlayers(netClient.getRoom(), dt);
     sceneManager.render(cameraSystem.getCamera());
@@ -309,12 +378,8 @@ loop
       const room = netClient.getRoom();
       const netInfo =
         room !== null
-          ? {
-              connected: true,
-              playerCount: room.state.players.size,
-              remoteMeshCount: remotePlayerMeshes.size,
-            }
-          : { connected: false, playerCount: 0, remoteMeshCount: 0 };
+          ? { connected: true, playerCount: room.state.players.size }
+          : { connected: false, playerCount: 0 };
       updateDebugOverlay(snap.velocity, snap.state, input.getState().sprint, netInfo);
     }
   });
@@ -326,17 +391,30 @@ window.addEventListener("resize", () => {
 });
 
 initAssets().then(async () => {
+  setLoadingMessage("Connecting to server…", 60);
   netClient.connect(clientConfig.serverUrl);
   const joined = await netClient.joinOrCreate("arena_ffa");
   if (!joined) {
     console.warn("Could not join arena_ffa – playing offline");
   } else {
+    setLoadingMessage("Joining arena…", 85);
     const room = netClient.getRoom();
     if (room) {
       setupRemotePlayers(room);
-      syncLocalSpawnFromServer(room);
+      await waitForLocalSpawnAndSync(room);
     }
   }
+  setLoadingMessage("Ready!", 100);
+  await new Promise((r) => setTimeout(r, 300));
+  hideLoadingScreen();
+  const snap = movement.getSnapshot();
+  cameraSystem.setTargetPosition(
+    snap.position.x,
+    snap.position.y + PLAYER_EYE_HEIGHT,
+    snap.position.z
+  );
+  cameraSystem.setRotation(snap.yaw, snap.pitch);
+  cameraSystem.update(1 / 60);
   loop.start();
   // Dev: setPlayerSkin('orange') in console to change player skin at runtime
   if (clientConfig.debugOverlay && typeof window !== "undefined") {

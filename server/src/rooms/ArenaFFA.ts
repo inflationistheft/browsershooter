@@ -7,6 +7,7 @@ import {
   movementTuning,
   resolveArenaWalls,
   applyWallVelocitySlide,
+  resolveAnimationClipId,
   type ArenaWallResult,
   PLAYER_RADIUS,
   PLAYER_EYE_HEIGHT,
@@ -50,10 +51,16 @@ export class ArenaFFARoom extends Room<ArenaState> {
     state.ammo = 30;
     state.maxAmmo = 30;
     this.state.players.set(client.id, state);
+    console.log(
+      `[ArenaFFA] Client ${client.id} joined. Players in room: ${this.state.players.size}`
+    );
   }
 
   onLeave(client: Client): void {
     this.state.players.delete(client.id);
+    console.log(
+      `[ArenaFFA] Client ${client.id} left. Players in room: ${this.state.players.size}`
+    );
   }
 
   private onInput(client: Client, message: unknown): void {
@@ -147,6 +154,19 @@ export class ArenaFFARoom extends Room<ArenaState> {
         applyWallVelocitySlide(vel, wall);
         player.vx = vel.x;
         player.vz = vel.z;
+
+        const animId = resolveAnimationClipId({
+          moveX: lastInput.moveX ?? 0,
+          moveZ: lastInput.moveZ ?? 0,
+          sprint: lastInput.sprint ?? false,
+          crouching: lastInput.slide ?? false,
+          movementState: player.movementState as "grounded" | "sliding" | "airborne",
+        });
+        player.animationState = animId;
+        const isStrafeFast = animId === "strafeLeftFast" || animId === "strafeRightFast";
+        player.animationTimeScale = isStrafeFast && !(lastInput.sprint ?? false) ? 0.7 : 1;
+      } else {
+        player.animationState = "idle";
       }
 
       if (

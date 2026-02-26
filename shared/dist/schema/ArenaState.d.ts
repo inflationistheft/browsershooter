@@ -13,6 +13,10 @@ export declare class PlayerStateSchema extends Schema {
     vy: number;
     vz: number;
     movementState: string;
+    /** Animation clip ID from resolveAnimationClipId (idle, walk, run, jump, etc.). */
+    animationState: string;
+    /** Playback scale for strafe clips (0.7 when not sprinting, 1 when sprinting). */
+    animationTimeScale: number;
     health: number;
     maxHealth: number;
     currentWeapon: string;

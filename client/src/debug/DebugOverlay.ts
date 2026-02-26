@@ -24,7 +24,10 @@ export function updateDebugOverlay(
   velocity: { x: number; y: number; z: number },
   state: string,
   sprint?: boolean,
-  netInfo?: { connected: boolean; playerCount: number; remoteMeshCount: number }
+  netInfo?: {
+    connected: boolean;
+    playerCount: number;
+  }
 ): void {
   frameCount++;
   const now = performance.now();
@@ -39,10 +42,10 @@ export function updateDebugOverlay(
   const el = document.getElementById("debug-overlay");
   if (el) {
     const sprintStr = sprint !== undefined ? ` | Sprint: ${sprint}` : "";
-    const netStr =
-      netInfo !== undefined
-        ? ` | Net: ${netInfo.connected ? "ok" : "off"} | Players: ${netInfo.playerCount} | Remote: ${netInfo.remoteMeshCount}`
-        : "";
+    let netStr = "";
+    if (netInfo !== undefined) {
+      netStr = ` | Net: ${netInfo.connected ? "ok" : "off"} | In room: ${netInfo.playerCount}`;
+    }
     el.textContent = `FPS: ${fps} | Vel: ${velocity.x.toFixed(1)}, ${velocity.y.toFixed(1)}, ${velocity.z.toFixed(1)} | State: ${state}${sprintStr}${netStr}`;
   }
 }
