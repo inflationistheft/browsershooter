@@ -12,7 +12,6 @@ import {
   BODY_CAPSULE_TOP,
   BODY_CAPSULE_RADIUS,
   BODY_CAPSULE_TOP_EXTEND,
-  LEGS_CAPSULE_RADIUS,
   DEBUG_HEAD_ONLY,
 } from "shared";
 
@@ -24,9 +23,8 @@ const LOCAL_COLOR = 0x00ff88; // Cyan-green for local player
 const REMOTE_COLOR = 0xff8800; // Orange for remote players
 /** Sphere/capsule segments for 3D readability. */
 const SEGMENTS = 16;
-const DEFAULT_LEGS_LENGTH = 1.0;
 
-/** Returns a group with head (0), body (1), legs (2) as direct children. */
+/** Returns a group with head (0), body (1) as direct children. */
 function createHitboxShape(color: number): THREE.Group {
   const group = new THREE.Group();
 
@@ -79,34 +77,12 @@ function createHitboxShape(color: number): THREE.Group {
   bodyGroup.position.set(0, bodyCenterY, 0);
   group.add(bodyGroup);
 
-  const legsGeo = new THREE.CapsuleGeometry(
-    LEGS_CAPSULE_RADIUS,
-    DEFAULT_LEGS_LENGTH,
-    4,
-    SEGMENTS
-  );
-  const legsFill = new THREE.MeshBasicMaterial({
-    color,
-    transparent: true,
-    opacity: HITBOX_OPACITY,
-    depthWrite: false,
-  });
-  const legsGroup = new THREE.Group();
-  legsGroup.add(new THREE.Mesh(legsGeo, legsFill));
-  const legsWire = new THREE.WireframeGeometry(legsGeo.clone());
-  legsGroup.add(new THREE.LineSegments(legsWire, new THREE.LineBasicMaterial({
-    color,
-    transparent: true,
-    opacity: 0.85,
-    depthWrite: false,
-  })));
-  legsGroup.position.set(0, (BODY_CAPSULE_BOTTOM + 0) / 2, 0);
-  group.add(legsGroup);
-
   return group;
 }
 
+/** Geometry base size. Total extent = length + 2*radius. */
 const DEFAULT_BODY_LENGTH = BODY_CAPSULE_TOP - BODY_CAPSULE_BOTTOM;
+const DEFAULT_BODY_TOTAL = DEFAULT_BODY_LENGTH + 2 * BODY_CAPSULE_RADIUS;
 
 export interface HitboxBonePositions {
   head: THREE.Vector3;
@@ -123,7 +99,6 @@ function setHitboxPositions(
 ): void {
   const headChild = group.children[0] as THREE.Group;
   const bodyChild = group.children[1] as THREE.Group;
-  const legsChild = group.children[2] as THREE.Group;
 
   if (bonePositions) {
     const { head, bodyCenter, spineTop, pelvis, feet } = bonePositions;
@@ -131,30 +106,21 @@ function setHitboxPositions(
     // Use direct bone positions (world space from getHitboxPositions) – matches server hitscan
     headChild.position.set(head.x, head.y, head.z);
     const bodyTopY = spineTop.y + BODY_CAPSULE_TOP_EXTEND;
-    const bodyLength = bodyTopY - pelvis.y;
+    const bodyLength = bodyTopY - feet.y;
     const bcx = (bodyCenter.x + pelvis.x) / 2;
-    const bcy = (pelvis.y + bodyTopY) / 2;
+    const bcy = (feet.y + bodyTopY) / 2;
     const bcz = (bodyCenter.z + pelvis.z) / 2;
     bodyChild.position.set(bcx, bcy, bcz);
-    bodyChild.scale.set(1, Math.max(0.1, bodyLength) / DEFAULT_BODY_LENGTH, 1);
-    const legsLength = pelvis.y - feet.y;
-    const lcx = (pelvis.x + feet.x) / 2;
-    const lcy = (feet.y + pelvis.y) / 2;
-    const lcz = (pelvis.z + feet.z) / 2;
-    legsChild.position.set(lcx, lcy, lcz);
-    legsChild.scale.set(1, Math.max(0.1, legsLength) / DEFAULT_LEGS_LENGTH, 1);
+    const bodyTotal = bodyLength + 2 * BODY_CAPSULE_RADIUS;
+    bodyChild.scale.set(1, Math.max(0.1, bodyTotal) / DEFAULT_BODY_TOTAL, 1);
     bodyChild.visible = !DEBUG_HEAD_ONLY;
-    legsChild.visible = !DEBUG_HEAD_ONLY;
   } else {
     group.position.set(rootPos.x, rootPos.y, rootPos.z);
     headChild.position.set(0, HEAD_HITBOX_HEIGHT, 0);
-    const bodyCenterY = (BODY_CAPSULE_BOTTOM + BODY_CAPSULE_TOP) / 2;
+    const bodyCenterY = BODY_CAPSULE_TOP / 2;
     bodyChild.position.set(0, bodyCenterY, 0);
     bodyChild.scale.set(1, 1, 1);
-    legsChild.position.set(0, BODY_CAPSULE_BOTTOM / 2, 0);
-    legsChild.scale.set(1, BODY_CAPSULE_BOTTOM / DEFAULT_LEGS_LENGTH, 1);
     bodyChild.visible = !DEBUG_HEAD_ONLY;
-    legsChild.visible = !DEBUG_HEAD_ONLY;
   }
 }
 

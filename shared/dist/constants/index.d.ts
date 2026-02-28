@@ -30,14 +30,10 @@ export declare const HEAD_HITBOX_OFFSET_FORWARD = 0.03;
 export declare const BODY_CAPSULE_BOTTOM = 0.2;
 /** Body capsule: top Y offset from feet (meters). Slightly above 1.35 to cover neck gap. */
 export declare const BODY_CAPSULE_TOP = 1.45;
-/** Body capsule: radius (torso + shoulders). Covers strafe lean. */
-export declare const BODY_CAPSULE_RADIUS = 0.45;
+/** Body capsule: radius (torso + shoulders + legs). */
+export declare const BODY_CAPSULE_RADIUS = 0.24;
 /** Extra height (m) above spineTop to cover neck gap. */
-export declare const BODY_CAPSULE_TOP_EXTEND = 0.12;
-/** Legs capsule: radius (covers both legs, generous for stride). */
-export declare const LEGS_CAPSULE_RADIUS = 0.3;
-/** Legs fallback: top Y offset from feet when no bone data. Full leg length. */
-export declare const LEGS_FALLBACK_TOP = 0.85;
+export declare const BODY_CAPSULE_TOP_EXTEND = 0.02;
 /** Hitscan: max range in meters. */
 export declare const HITSCAN_RANGE = 200;
 /** Damage per hit. */
@@ -49,5 +45,5 @@ export declare const HEALTH_BAR_VISIBILITY_MS = 1250;
 /** Respawn delay after death (seconds). */
 export declare const RESPAWN_DELAY_SEC = 3;
 /** Debug: only head hitbox (body/legs disabled) for isolated head testing. */
-export declare const DEBUG_HEAD_ONLY = true;
+export declare const DEBUG_HEAD_ONLY = false;
 //# sourceMappingURL=index.d.ts.map

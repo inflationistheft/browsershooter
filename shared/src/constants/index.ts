@@ -36,15 +36,11 @@ export const HEAD_HITBOX_OFFSET_FORWARD = 0.03;
 export const BODY_CAPSULE_BOTTOM = 0.2;
 /** Body capsule: top Y offset from feet (meters). Slightly above 1.35 to cover neck gap. */
 export const BODY_CAPSULE_TOP = 1.45;
-/** Body capsule: radius (torso + shoulders). Covers strafe lean. */
-export const BODY_CAPSULE_RADIUS = 0.45;
+/** Body capsule: radius (torso + shoulders + legs). */
+export const BODY_CAPSULE_RADIUS = 0.24;
 /** Extra height (m) above spineTop to cover neck gap. */
-export const BODY_CAPSULE_TOP_EXTEND = 0.12;
+export const BODY_CAPSULE_TOP_EXTEND = 0.02;
 
-/** Legs capsule: radius (covers both legs, generous for stride). */
-export const LEGS_CAPSULE_RADIUS = 0.3;
-/** Legs fallback: top Y offset from feet when no bone data. Full leg length. */
-export const LEGS_FALLBACK_TOP = 0.85;
 /** Hitscan: max range in meters. */
 export const HITSCAN_RANGE = 200;
 /** Damage per hit. */
@@ -59,4 +55,4 @@ export const HEALTH_BAR_VISIBILITY_MS = 1250;
 export const RESPAWN_DELAY_SEC = 3;
 
 /** Debug: only head hitbox (body/legs disabled) for isolated head testing. */
-export const DEBUG_HEAD_ONLY = true;
+export const DEBUG_HEAD_ONLY = false;

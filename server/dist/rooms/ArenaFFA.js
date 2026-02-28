@@ -2,7 +2,7 @@
  * FFA Arena room: tick loop, state sync, placeholder movement.
  */
 import { Room } from "@colyseus/core";
-import { movementTuning, resolveArenaWalls, applyWallVelocitySlide, rayArenaIntersection, resolveAnimationClipId, TICK_RATE, PLAYER_RADIUS, PLAYER_EYE_HEIGHT, CROUCH_EYE_HEIGHT, HITSCAN_RANGE, HITSCAN_DAMAGE, RELOAD_TICKS, DEFAULT_MAX_HEALTH, RESPAWN_DELAY_SEC, HEAD_HITBOX_HEIGHT, HEAD_HITBOX_RADIUS, BODY_CAPSULE_BOTTOM, BODY_CAPSULE_TOP, BODY_CAPSULE_RADIUS, BODY_CAPSULE_TOP_EXTEND, raySphereIntersection, rayCapsuleIntersection, LEGS_CAPSULE_RADIUS, LEGS_FALLBACK_TOP, DEBUG_HEAD_ONLY, } from "shared";
+import { movementTuning, resolveArenaWalls, applyWallVelocitySlide, rayArenaIntersection, resolveAnimationClipId, TICK_RATE, PLAYER_RADIUS, PLAYER_EYE_HEIGHT, CROUCH_EYE_HEIGHT, HITSCAN_RANGE, HITSCAN_DAMAGE, RELOAD_TICKS, DEFAULT_MAX_HEALTH, RESPAWN_DELAY_SEC, HEAD_HITBOX_HEIGHT, HEAD_HITBOX_RADIUS, BODY_CAPSULE_TOP, BODY_CAPSULE_RADIUS, BODY_CAPSULE_TOP_EXTEND, raySphereIntersection, rayCapsuleIntersection, DEBUG_HEAD_ONLY, } from "shared";
 import { ArenaState, PlayerStateSchema } from "shared";
 import { serverConfig } from "../config/index.js";
 export class ArenaFFARoom extends Room {
@@ -506,32 +506,15 @@ export class ArenaFFARoom extends Room {
                 const bcx = (targetExt._bodyCenterX + targetExt._pelvisX) / 2;
                 const bcz = (targetExt._bodyCenterZ + targetExt._pelvisZ) / 2;
                 const bodyTopY = targetExt._spineTopY + BODY_CAPSULE_TOP_EXTEND;
-                tBody = rayCapsuleIntersection(ox, oy, oz, dx, dy, dz, bcx, 0, bcz, targetExt._pelvisY, bodyTopY, BODY_CAPSULE_RADIUS);
+                tBody = rayCapsuleIntersection(ox, oy, oz, dx, dy, dz, bcx, 0, bcz, targetExt._feetY, bodyTopY, BODY_CAPSULE_RADIUS);
             }
             else {
-                tBody = rayCapsuleIntersection(ox, oy, oz, dx, dy, dz, p.x, p.y, p.z, BODY_CAPSULE_BOTTOM, BODY_CAPSULE_TOP, BODY_CAPSULE_RADIUS);
+                tBody = rayCapsuleIntersection(ox, oy, oz, dx, dy, dz, p.x, p.y, p.z, 0, BODY_CAPSULE_TOP, BODY_CAPSULE_RADIUS);
             }
             if (tBody !== null && tBody > 0 && tBody <= HITSCAN_RANGE && tBody < bestT) {
                 const los = rayArenaIntersection(ox, oy, oz, dx, dy, dz, tBody);
                 if (!los.hit || (los.t !== undefined && los.t > tBody)) {
                     bestT = tBody;
-                    bestId = targetId;
-                    bestType = "body";
-                }
-            }
-            let tLegs;
-            if (useBoneHitboxes) {
-                const lcx = (targetExt._pelvisX + targetExt._feetX) / 2;
-                const lcz = (targetExt._pelvisZ + targetExt._feetZ) / 2;
-                tLegs = rayCapsuleIntersection(ox, oy, oz, dx, dy, dz, lcx, 0, lcz, targetExt._feetY, targetExt._pelvisY, LEGS_CAPSULE_RADIUS);
-            }
-            else {
-                tLegs = rayCapsuleIntersection(ox, oy, oz, dx, dy, dz, p.x, p.y, p.z, 0, LEGS_FALLBACK_TOP, LEGS_CAPSULE_RADIUS);
-            }
-            if (tLegs !== null && tLegs > 0 && tLegs <= HITSCAN_RANGE && tLegs < bestT) {
-                const los = rayArenaIntersection(ox, oy, oz, dx, dy, dz, tLegs);
-                if (!los.hit || (los.t !== undefined && los.t > tLegs)) {
-                    bestT = tLegs;
                     bestId = targetId;
                     bestType = "body";
                 }

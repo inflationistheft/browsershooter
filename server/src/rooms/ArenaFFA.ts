@@ -21,14 +21,11 @@ import {
   RESPAWN_DELAY_SEC,
   HEAD_HITBOX_HEIGHT,
   HEAD_HITBOX_RADIUS,
-  BODY_CAPSULE_BOTTOM,
   BODY_CAPSULE_TOP,
   BODY_CAPSULE_RADIUS,
   BODY_CAPSULE_TOP_EXTEND,
   raySphereIntersection,
   rayCapsuleIntersection,
-  LEGS_CAPSULE_RADIUS,
-  LEGS_FALLBACK_TOP,
   DEBUG_HEAD_ONLY,
 } from "shared";
 import type { PlayerInput } from "shared";
@@ -648,7 +645,7 @@ export class ArenaFFARoom extends Room<ArenaState> {
         tBody = rayCapsuleIntersection(
           ox, oy, oz, dx, dy, dz,
           bcx, 0, bcz,
-          targetExt._pelvisY!,
+          targetExt._feetY!,
           bodyTopY,
           BODY_CAPSULE_RADIUS
         );
@@ -656,7 +653,7 @@ export class ArenaFFARoom extends Room<ArenaState> {
         tBody = rayCapsuleIntersection(
           ox, oy, oz, dx, dy, dz,
           p.x, p.y, p.z,
-          BODY_CAPSULE_BOTTOM,
+          0,
           BODY_CAPSULE_TOP,
           BODY_CAPSULE_RADIUS
         );
@@ -666,36 +663,6 @@ export class ArenaFFARoom extends Room<ArenaState> {
         const los = rayArenaIntersection(ox, oy, oz, dx, dy, dz, tBody);
         if (!los.hit || (los.t !== undefined && los.t > tBody)) {
           bestT = tBody;
-          bestId = targetId;
-          bestType = "body";
-        }
-      }
-
-      let tLegs: number | null;
-      if (useBoneHitboxes) {
-        const lcx = (targetExt._pelvisX! + targetExt._feetX!) / 2;
-        const lcz = (targetExt._pelvisZ! + targetExt._feetZ!) / 2;
-        tLegs = rayCapsuleIntersection(
-          ox, oy, oz, dx, dy, dz,
-          lcx, 0, lcz,
-          targetExt._feetY!,
-          targetExt._pelvisY!,
-          LEGS_CAPSULE_RADIUS
-        );
-      } else {
-        tLegs = rayCapsuleIntersection(
-          ox, oy, oz, dx, dy, dz,
-          p.x, p.y, p.z,
-          0,
-          LEGS_FALLBACK_TOP,
-          LEGS_CAPSULE_RADIUS
-        );
-      }
-
-      if (tLegs !== null && tLegs > 0 && tLegs <= HITSCAN_RANGE && tLegs < bestT) {
-        const los = rayArenaIntersection(ox, oy, oz, dx, dy, dz, tLegs);
-        if (!los.hit || (los.t !== undefined && los.t > tLegs)) {
-          bestT = tLegs;
           bestId = targetId;
           bestType = "body";
         }
