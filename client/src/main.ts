@@ -371,18 +371,25 @@ loop
   .setRenderCallback((dt) => {
     const state = input.getState();
     const snap = movement.getSnapshot();
+    const clipId = resolveAnimationClipId({
+      moveX: state.moveX,
+      moveZ: state.moveZ,
+      sprint: state.sprint,
+      crouching: snap.state === "sliding" || snap.crouching,
+      movementState: snap.state,
+    });
+    // #region agent log
+    if (snap.state === "sliding" && !state.slide) {
+      fetch('http://127.0.0.1:7291/ingest/e6ca52ac-ce07-4922-9b3f-cd33fd3e1212',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0b0c37'},body:JSON.stringify({sessionId:'0b0c37',location:'main.ts:render',message:'Anim resolve: sliding but C released',data:{snapState:snap.state,stateSlide:state.slide,clipId,crouching:snap.crouching},hypothesisId:'D',timestamp:Date.now()})}).catch(()=>{});
+    }
+    // #endregion
+    const animCtx: { vy?: number; sprint?: boolean } = {};
+    if (clipId === "jump") animCtx.vy = snap.velocity.y;
+    if (clipId === "strafeLeftFast" || clipId === "strafeRightFast") animCtx.sprint = state.sprint;
+    const animCtxArg = Object.keys(animCtx).length ? animCtx : undefined;
+
     if (localPlayerMixer) {
-      const clipId = resolveAnimationClipId({
-        moveX: state.moveX,
-        moveZ: state.moveZ,
-        sprint: state.sprint,
-        crouching: snap.crouching,
-        movementState: snap.state,
-      });
-      const ctx: { vy?: number; sprint?: boolean } = {};
-      if (clipId === "jump") ctx.vy = snap.velocity.y;
-      if (clipId === "strafeLeftFast" || clipId === "strafeRightFast") ctx.sprint = state.sprint;
-      playerAnimationSystem.playClip(localPlayerMixer, clipId, Object.keys(ctx).length ? ctx : undefined);
+      playerAnimationSystem.playClip(localPlayerMixer, clipId, animCtxArg);
     }
     cameraSystem.update(dt);
     if (localPlayerMixer) localPlayerMixer.update(dt);
@@ -391,17 +398,7 @@ loop
       hitboxDummy.position.set(snap.position.x, snap.position.y, snap.position.z);
       hitboxDummy.rotation.set(0, snap.yaw + Math.PI, 0);
       if (hitboxDummyMixer) {
-        const clipId = resolveAnimationClipId({
-          moveX: state.moveX,
-          moveZ: state.moveZ,
-          sprint: state.sprint,
-          crouching: snap.crouching,
-          movementState: snap.state,
-        });
-        const ctx: { vy?: number; sprint?: boolean } = {};
-        if (clipId === "jump") ctx.vy = snap.velocity.y;
-        if (clipId === "strafeLeftFast" || clipId === "strafeRightFast") ctx.sprint = state.sprint;
-        playerAnimationSystem.playClip(hitboxDummyMixer, clipId, Object.keys(ctx).length ? ctx : undefined);
+        playerAnimationSystem.playClip(hitboxDummyMixer, clipId, animCtxArg);
         hitboxDummyMixer.update(dt);
       }
       const positions = getHitboxPositionsFromModel(hitboxDummy);

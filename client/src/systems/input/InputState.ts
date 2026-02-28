@@ -35,8 +35,8 @@ export const defaultInputState: InputState = {
   debugModeJustPressed: false,
 };
 
-/** Key codes to lock when pointer lock is active so browser does not handle Ctrl+W / Ctrl+N / Ctrl+T. */
-const LOCK_KEYS_FOR_BROWSER_SHORTCUTS = ["KeyW", "KeyN", "KeyT"];
+/** Key codes to lock when pointer lock is active: browser shortcuts + crouch/slide so C/Ctrl work reliably. */
+const LOCK_KEYS_FOR_BROWSER_SHORTCUTS = ["KeyW", "KeyN", "KeyT", "KeyC", "ControlLeft", "ControlRight"];
 
 /** Block Ctrl+W / Ctrl+N / Ctrl+T in capture phase so tab doesn't close when pointer locked. */
 function installCaptureShortcutBlocker(_getPointerLocked: () => boolean): void {
@@ -106,13 +106,10 @@ export class InputSampler {
     installCaptureShortcutBlocker(() => this.pointerLocked);
     document.addEventListener("pointerlockchange", () => {
       this.pointerLocked = document.pointerLockElement === canvas;
-      if (this.pointerLocked) {
-        this.keysDown.clear();
-        this.slideWasDown = false;
-        this._slideIntentTicks = 0;
-      } else {
-        if (navigator.keyboard?.unlock) navigator.keyboard.unlock();
-      }
+      this.keysDown.clear();
+      this.slideWasDown = false;
+      this._slideIntentTicks = 0;
+      if (!this.pointerLocked && navigator.keyboard?.unlock) navigator.keyboard.unlock();
     });
     document.addEventListener("mousemove", (e) => {
       if (!this.pointerLocked) return;

@@ -35,6 +35,8 @@ export const movementTuning = {
   slideJumpMultiplier: 1.25,
   /** Cooldown in seconds before slide jump can be used again. */
   slideJumpCooldown: 2,
+  /** Cooldown in seconds after slide ends before entering a new slide (prevents infinite re-entry while holding C). */
+  slideEnterCooldown: 0.4,
   wallBounceWindow: 0.2,
   wallBounceReflectFactor: 0.85,
   wallBounceSpeedMin: 6,

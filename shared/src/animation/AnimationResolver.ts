@@ -9,7 +9,7 @@ export interface AnimationResolverInput {
   moveX: number;
   moveZ: number;
   sprint: boolean;
-  /** True when crouching (slide key) or sliding. */
+  /** True when crouching (slide key held) or when movementState is sliding (slide continues without holding). */
   crouching: boolean;
   movementState: AnimationResolverMovementState;
 }

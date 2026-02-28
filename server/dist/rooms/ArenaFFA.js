@@ -1,6 +1,7 @@
 /**
  * FFA Arena room: tick loop, state sync, placeholder movement.
  */
+import * as fs from "fs";
 import { Room } from "@colyseus/core";
 import { movementTuning, resolveArenaWalls, applyWallVelocitySlide, rayArenaIntersection, resolveAnimationClipId, TICK_RATE, PLAYER_RADIUS, PLAYER_EYE_HEIGHT, CROUCH_EYE_HEIGHT, HITSCAN_RANGE, HITSCAN_DAMAGE, RELOAD_TICKS, DEFAULT_MAX_HEALTH, RESPAWN_DELAY_SEC, HEAD_HITBOX_HEIGHT, HEAD_HITBOX_RADIUS, BODY_CAPSULE_TOP, BODY_CAPSULE_RADIUS, BODY_CAPSULE_TOP_EXTEND, raySphereIntersection, rayCapsuleIntersection, DEBUG_HEAD_ONLY, } from "shared";
 import { ArenaState, PlayerStateSchema } from "shared";
@@ -87,12 +88,16 @@ export class ArenaFFARoom extends Room {
                     ext._sprintReleaseGrace = 0;
                     ext._slideTime = undefined;
                     ext._slideJumpCooldownTimer = undefined;
+                    ext._slideEnterCooldownTimer = undefined;
                     ext._slideOnLand = false;
                 }
                 return;
             }
             if (ext._slideJumpCooldownTimer !== undefined && ext._slideJumpCooldownTimer > 0) {
                 ext._slideJumpCooldownTimer -= dtSec;
+            }
+            if (ext._slideEnterCooldownTimer !== undefined && ext._slideEnterCooldownTimer > 0) {
+                ext._slideEnterCooldownTimer -= dtSec;
             }
             if (ext._reloadTicks !== undefined && ext._reloadTicks > 0) {
                 ext._reloadTicks--;
@@ -142,7 +147,14 @@ export class ArenaFFARoom extends Room {
                         hor > 0.1 &&
                         (inputWorldX * player.vx + inputWorldZ * player.vz) / (inputMag * hor) < 0.5;
                     if (inputCancelsSlide) {
+                        // #region agent log
+                        try {
+                            fs.appendFileSync("/home/seba/GitHub/browsershooter/.cursor/debug-0b0c37.log", JSON.stringify({ sessionId: "0b0c37", location: "ArenaFFA.ts:inputCancelsSlide", message: "Slide exit server: inputCancelsSlide", data: { lastInputSlide: lastInput.slide }, hypothesisId: "A", timestamp: Date.now() }) + "\n");
+                        }
+                        catch { }
+                        // #endregion
                         player.movementState = "grounded";
+                        ext._slideEnterCooldownTimer = t.slideEnterCooldown;
                     }
                     else {
                         const stillSliding = hor >= t.slideMinSpeed &&
@@ -159,7 +171,14 @@ export class ArenaFFARoom extends Room {
                             ext._horSpeedWhenJumped = Math.hypot(player.vx, player.vz);
                         }
                         else if (!stillSliding) {
+                            // #region agent log
+                            try {
+                                fs.appendFileSync("/home/seba/GitHub/browsershooter/.cursor/debug-0b0c37.log", JSON.stringify({ sessionId: "0b0c37", location: "ArenaFFA.ts:!stillSliding", message: "Slide exit server: !stillSliding", data: { hor, slideTime: extSlide._slideTime }, hypothesisId: "A", timestamp: Date.now() }) + "\n");
+                            }
+                            catch { }
+                            // #endregion
                             player.movementState = player.y <= GROUND_Y + 0.01 ? "grounded" : "airborne";
+                            ext._slideEnterCooldownTimer = t.slideEnterCooldown;
                         }
                     }
                 }
@@ -175,11 +194,19 @@ export class ArenaFFARoom extends Room {
                     const hadRecentSprint = (lastInput.sprint ?? false) || (ext._sprintReleaseGrace ?? 0) > 0;
                     const warmupOk = (ext._sprintWarmupTime ?? 0) >= t.slideEnterMinSprintTime || (ext._sprintReleaseGrace ?? 0) > 0;
                     const horSpeed = Math.hypot(player.vx, player.vz);
+                    const slideEnterCooldownOk = (ext._slideEnterCooldownTimer ?? 0) <= 0;
                     const canGroundSlide = (lastInput.slide ?? false) &&
                         hadRecentSprint &&
                         warmupOk &&
+                        slideEnterCooldownOk &&
                         horSpeed >= t.slideEnterSpeed;
                     if (canGroundSlide) {
+                        // #region agent log
+                        try {
+                            fs.appendFileSync("/home/seba/GitHub/browsershooter/.cursor/debug-0b0c37.log", JSON.stringify({ sessionId: "0b0c37", location: "ArenaFFA.ts:canGroundSlide", message: "Slide ENTER server", data: { horSpeed, slideEnterCooldown: ext._slideEnterCooldownTimer }, hypothesisId: "A", timestamp: Date.now() }) + "\n");
+                        }
+                        catch { }
+                        // #endregion
                         player.movementState = "sliding";
                         ext._slideTime = 0;
                         const hor = Math.hypot(player.vx, player.vz);
@@ -256,7 +283,7 @@ export class ArenaFFARoom extends Room {
                                 player.vz = (player.vz / horLand) * boost;
                             }
                         }
-                        else {
+                        else if (player.movementState !== "sliding") {
                             player.movementState = "grounded";
                         }
                         ext._slideOnLand = false;
@@ -276,7 +303,7 @@ export class ArenaFFARoom extends Room {
                     moveX: lastInput.moveX ?? 0,
                     moveZ: lastInput.moveZ ?? 0,
                     sprint: lastInput.sprint ?? false,
-                    crouching: lastInput.slide ?? false,
+                    crouching: player.movementState === "sliding" || (lastInput.slide ?? false),
                     movementState: player.movementState,
                 });
                 player.animationState = animId;
@@ -368,6 +395,8 @@ export class ArenaFFARoom extends Room {
             return;
         if (mag(bcx, bcy, bcz) > ArenaFFARoom.HITBOX_OFFSET_MAX)
             return;
+        if (mag(stx, sty, stz) > ArenaFFARoom.HITBOX_OFFSET_MAX)
+            return;
         if (mag(px, py, pz) > ArenaFFARoom.HITBOX_OFFSET_MAX)
             return;
         if (mag(fx, fy, fz) > ArenaFFARoom.HITBOX_OFFSET_MAX)
@@ -451,53 +480,14 @@ export class ArenaFFARoom extends Room {
             const headCy = useBoneHitboxes ? targetExt._headY : p.y + HEAD_HITBOX_HEIGHT;
             const headCz = useBoneHitboxes ? targetExt._headZ : p.z;
             const tHead = raySphereIntersection(ox, oy, oz, dx, dy, dz, headCx, headCy, headCz, HEAD_HITBOX_RADIUS);
-            let headHitThisTarget = false;
-            let losBlocked = false;
             if (tHead !== null && tHead > 0 && tHead <= HITSCAN_RANGE && tHead < bestT) {
                 const los = rayArenaIntersection(ox, oy, oz, dx, dy, dz, tHead);
-                losBlocked = los.hit && los.t !== undefined && los.t <= tHead;
                 if (!los.hit || (los.t !== undefined && los.t > tHead)) {
                     bestT = tHead;
                     bestId = targetId;
                     bestType = "head";
-                    headHitThisTarget = true;
                 }
             }
-            // #region agent log
-            {
-                const hitPointY = tHead != null ? oy + tHead * dy : null;
-                const relY = hitPointY != null ? hitPointY - headCy : null;
-                const isMiss = tHead === null;
-                const isInteresting = headHitThisTarget || isMiss || losBlocked;
-                if (isInteresting) {
-                    fetch("http://127.0.0.1:7291/ingest/e6ca52ac-ce07-4922-9b3f-cd33fd3e1212", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "402dcc" },
-                        body: JSON.stringify({
-                            sessionId: "402dcc",
-                            location: "ArenaFFA.ts:hitscan",
-                            message: "head hitbox check",
-                            data: {
-                                hypothesisId: "H1",
-                                targetId,
-                                useBoneHitboxes,
-                                headCx,
-                                headCy,
-                                headCz,
-                                sphereTopY: headCy + HEAD_HITBOX_RADIUS,
-                                tHead,
-                                headHit: headHitThisTarget,
-                                losBlocked,
-                                rayDirY: dy,
-                                hitPointY,
-                                relYFromCenter: relY,
-                            },
-                            timestamp: Date.now(),
-                        }),
-                    }).catch(() => { });
-                }
-            }
-            // #endregion
             if (DEBUG_HEAD_ONLY) {
                 return;
             }

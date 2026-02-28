@@ -19,10 +19,12 @@ export class SceneManager {
     this.renderer.setClearColor(0x2a2a35);
 
     this.scene.background = new THREE.Color(0x2a2a35);
-    const ambient = new THREE.AmbientLight(0xffffff, 0.65);
+    const ambient = new THREE.AmbientLight(0xffffff, 0.5);
     this.scene.add(ambient);
-    const dir = new THREE.DirectionalLight(0xffffff, 0.9);
-    dir.position.set(10, 20, 10);
+    const hemisphere = new THREE.HemisphereLight(0x2d1b4e, 0x0d0d1a, 0.35);
+    this.scene.add(hemisphere);
+    const dir = new THREE.DirectionalLight(0xffffff, 0.85);
+    dir.position.set(12, 25, 12);
     this.scene.add(dir);
 
     const floorGeo = new THREE.PlaneGeometry(ARENA_SIZE, ARENA_SIZE);
@@ -43,6 +45,49 @@ export class SceneManager {
       if (z === 0) w.rotation.y = Math.PI / 2;
       this.scene.add(w);
     }
+
+    this.scene.add(this.createProceduralSkybox());
+  }
+
+  private createProceduralSkybox(): THREE.Mesh {
+    const radius = 500;
+    const geometry = new THREE.SphereGeometry(radius, 32, 24);
+    const material = new THREE.ShaderMaterial({
+      uniforms: {},
+      vertexShader: `
+        varying vec3 vDirection;
+        void main() {
+          vDirection = position;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        varying vec3 vDirection;
+        float hash(vec3 p) {
+          return fract(sin(dot(p, vec3(12.9898, 78.233, 45.164))) * 43758.5453);
+        }
+        void main() {
+          vec3 dir = normalize(vDirection);
+          float t = dir.y * 0.5 + 0.5;
+          vec3 top = vec3(0.15, 0.12, 0.25);
+          vec3 bottom = vec3(0.02, 0.02, 0.06);
+          vec3 base = mix(bottom, top, t);
+          float star = step(0.9985, hash(floor(dir * 180.0)));
+          star += step(0.9992, hash(floor(dir * 320.0))) * 0.6;
+          base += vec3(star, star * 0.95, star) * 1.2;
+          float galaxy = exp(-abs(dir.y) * 2.0) * 0.5 * (0.3 + 0.3 * sin(dir.x * 4.0 + dir.z * 3.0));
+          base += vec3(galaxy * 0.4, galaxy * 0.35, galaxy * 0.5);
+          gl_FragColor = vec4(base, 1.0);
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
+        }
+      `,
+      side: THREE.BackSide,
+      depthWrite: false,
+    });
+    const skybox = new THREE.Mesh(geometry, material);
+    skybox.frustumCulled = false;
+    return skybox;
   }
 
   render(camera: THREE.Camera): void {

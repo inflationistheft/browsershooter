@@ -43,8 +43,11 @@ export class FPSMovementController {
   private sprintReleaseGrace = 0;
   /** Seconds left before slide jump can be used again. */
   private slideJumpCooldownTimer = 0;
+  /** Seconds left before entering a new slide (prevents infinite re-entry while holding C). */
+  private slideEnterCooldownTimer = 0;
   /** Max horizontal speed in air (preserved from jump; no gain in air). */
   private horSpeedWhenJumped = 0;
+  private _debugFrame = 0;
 
   update(dt: number, input: Readonly<InputState>, _physics: { raycast?: () => boolean }): void {
     const t = movementTuning;
@@ -54,8 +57,15 @@ export class FPSMovementController {
     if (this.state === "grounded") this.coyoteTimer = t.coyoteTime;
     else this.coyoteTimer -= dt;
     if (this.slideJumpCooldownTimer > 0) this.slideJumpCooldownTimer -= dt;
+    if (this.slideEnterCooldownTimer > 0) this.slideEnterCooldownTimer -= dt;
 
     if (this.state === "sliding") {
+      this._debugFrame++;
+      if (this._debugFrame % 30 === 1) {
+        // #region agent log
+        fetch('http://127.0.0.1:7291/ingest/e6ca52ac-ce07-4922-9b3f-cd33fd3e1212',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0b0c37'},body:JSON.stringify({sessionId:'0b0c37',location:'FPSMovementController.ts:sliding',message:'During slide',data:{inputSlide:input.slide,hor:Math.hypot(this.velocity.x,this.velocity.z),slideTime:this.slideTime},hypothesisId:'B',timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
+      }
       this.slideTime += dt;
       const hor = Math.hypot(this.velocity.x, this.velocity.z);
       this.velocity.x *= t.slideDecay;
@@ -88,7 +98,11 @@ export class FPSMovementController {
         hor > 0.1 &&
         (inputWorldX * this.velocity.x + inputWorldZ * this.velocity.z) / (inputMag * hor) < 0.5;
       if (inputCancelsSlide) {
+        // #region agent log
+        fetch('http://127.0.0.1:7291/ingest/e6ca52ac-ce07-4922-9b3f-cd33fd3e1212',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0b0c37'},body:JSON.stringify({sessionId:'0b0c37',location:'FPSMovementController.ts:inputCancelsSlide',message:'Slide exit: inputCancelsSlide',data:{inputSlide:input.slide,hor,slideTime:this.slideTime},hypothesisId:'E',timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
         this.state = "grounded";
+        this.slideEnterCooldownTimer = t.slideEnterCooldown;
         this.yaw = input.yaw;
         this.pitch = input.pitch;
         this.crouching = false;
@@ -108,7 +122,11 @@ export class FPSMovementController {
         this.slideJumpCooldownTimer = t.slideJumpCooldown;
         this.state = "airborne";
       } else if (!stillSliding) {
+        // #region agent log
+        fetch('http://127.0.0.1:7291/ingest/e6ca52ac-ce07-4922-9b3f-cd33fd3e1212',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0b0c37'},body:JSON.stringify({sessionId:'0b0c37',location:'FPSMovementController.ts:!stillSliding',message:'Slide exit: !stillSliding',data:{hor,slideTime:this.slideTime,inputSlide:input.slide},hypothesisId:'B',timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
         // End slide: go to grounded (velocity kept → friction slows to stop; W = walk/crouch speed)
+        this.slideEnterCooldownTimer = t.slideEnterCooldown;
         if (this.position.y <= GROUND_Y + 0.01) this.state = "grounded";
         else this.state = "airborne";
       }
@@ -182,14 +200,20 @@ export class FPSMovementController {
     const hadRecentSprint = input.sprint || this.sprintReleaseGrace > 0;
     const warmupOk = this.sprintWarmupTime >= t.slideEnterMinSprintTime || this.sprintReleaseGrace > 0;
     const horSpeed = Math.hypot(this.velocity.x, this.velocity.z);
+    const slideEnterCooldownOk = this.slideEnterCooldownTimer <= 0;
     const canGroundSlide =
       input.slideIntentTicks > 0 &&
       hadRecentSprint &&
       warmupOk &&
+      slideEnterCooldownOk &&
       horSpeed >= t.slideEnterSpeed;
     if (canGroundSlide) {
+      // #region agent log
+      fetch('http://127.0.0.1:7291/ingest/e6ca52ac-ce07-4922-9b3f-cd33fd3e1212',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0b0c37'},body:JSON.stringify({sessionId:'0b0c37',location:'FPSMovementController.ts:canGroundSlide',message:'Slide ENTER client',data:{horSpeed,slideIntentTicks:input.slideIntentTicks,cooldown:this.slideEnterCooldownTimer},hypothesisId:'A',timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       this.state = "sliding";
       this.slideTime = 0;
+      this._debugFrame = 0;
       this.crouching = true;
       const hor = Math.hypot(this.velocity.x, this.velocity.z);
       const boost = Math.max(hor * t.slideSpeedBoost, t.slideInitialSpeed);
