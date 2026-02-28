@@ -222,6 +222,7 @@ export class ArenaFFARoom extends Room {
                         }
                         if (lastInput.jump) {
                             player.vy = t.jumpForce;
+                            ext._horSpeedWhenJumped = Math.hypot(player.vx, player.vz);
                             player.movementState = "airborne";
                         }
                         else {
@@ -234,16 +235,12 @@ export class ArenaFFARoom extends Room {
                         ext._slideOnLand = true;
                     player.vy -= t.gravity * dtSec;
                     player.vy = Math.max(player.vy, -t.maxFallSpeed);
-                    const cos = Math.cos(player.yaw);
-                    const sin = Math.sin(player.yaw);
-                    const ax = ((lastInput.moveX ?? 0) * cos - (lastInput.moveZ ?? 0) * sin) * t.airAccel * dtSec * 0.3;
-                    const az = (-(lastInput.moveX ?? 0) * sin - (lastInput.moveZ ?? 0) * cos) * t.airAccel * dtSec * 0.3;
-                    player.vx += ax;
-                    player.vz += az;
+                    // Preserve horizontal speed from jump; no air acceleration
                     const hor = Math.hypot(player.vx, player.vz);
-                    if (hor > t.airMaxSpeed && t.airMaxSpeed > 0) {
-                        player.vx *= t.airMaxSpeed / hor;
-                        player.vz *= t.airMaxSpeed / hor;
+                    const horCap = ext._horSpeedWhenJumped ?? 0;
+                    if (hor > horCap && horCap > 0) {
+                        player.vx *= horCap / hor;
+                        player.vz *= horCap / hor;
                     }
                 }
                 if (!sliding) {
@@ -270,6 +267,9 @@ export class ArenaFFARoom extends Room {
                         ext._slideOnLand = false;
                     }
                     else {
+                        if (ext._horSpeedWhenJumped === undefined) {
+                            ext._horSpeedWhenJumped = Math.hypot(player.vx, player.vz);
+                        }
                         player.movementState = "airborne";
                     }
                     const wall = resolveArenaWalls(player.x, player.z, PLAYER_RADIUS);
@@ -316,6 +316,19 @@ export class ArenaFFARoom extends Room {
                                 targetId: hitResult.targetId,
                                 damage: HITSCAN_DAMAGE,
                                 hitboxType: hitResult.hitboxType,
+                            });
+                        }
+                        const targetClient = Array.from(this.clients).find((c) => c.sessionId === hitResult.targetId);
+                        if (targetClient) {
+                            const dirX = player.x - target.x;
+                            const dirY = player.y - target.y;
+                            const dirZ = player.z - target.z;
+                            const len = Math.hypot(dirX, dirY, dirZ) || 1;
+                            targetClient.send("hitReceived", {
+                                dirX: dirX / len,
+                                dirY: dirY / len,
+                                dirZ: dirZ / len,
+                                damage: HITSCAN_DAMAGE,
                             });
                         }
                         if (process.env.DEBUG_HITSCAN) {

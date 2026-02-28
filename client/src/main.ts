@@ -17,6 +17,12 @@ import {
   updatePlayerHealthBars,
 } from "./systems/ui/PlayerHealthBars.js";
 import {
+  createHitIndicator,
+  getLastHitAngle,
+  onHitReceived,
+  updateHitIndicators,
+} from "./systems/ui/HitIndicator.js";
+import {
   createLoadingScreen,
   setLoadingMessage,
   hideLoadingScreen,
@@ -86,6 +92,7 @@ const movement = new FPSMovementController();
 createLoadingScreen(app);
 createHUD(app);
 createPlayerHealthBars(app);
+createHitIndicator(app);
 if (clientConfig.debugOverlay) createDebugOverlay(app);
 
 const debugHitboxes = new DebugHitboxVisualization(sceneManager.getScene());
@@ -469,14 +476,21 @@ loop
     const ammo = localPlayer?.ammo ?? WEAPON_STUB.ammo;
     const maxAmmo = localPlayer?.maxAmmo ?? WEAPON_STUB.maxAmmo;
     updateHUD(hp, ammo, maxAmmo, debugMode);
+    updateHitIndicators(snap.yaw, snap.pitch, dt, debugMode);
     if (clientConfig.debugOverlay) {
-      const snap = movement.getSnapshot();
       const room = netClient.getRoom();
       const netInfo =
         room !== null
           ? { connected: true, playerCount: room.state.players.size }
           : { connected: false, playerCount: 0 };
-      updateDebugOverlay(snap.velocity, snap.state, input.getState().sprint, netInfo, debugMode);
+      updateDebugOverlay(
+        snap.velocity,
+        snap.state,
+        input.getState().sprint,
+        netInfo,
+        debugMode,
+        getLastHitAngle()
+      );
     }
   });
 
@@ -500,6 +514,12 @@ initAssets().then(async () => {
       room.onMessage("hit", (payload: { targetId: string }) => {
         onPlayerHit(payload.targetId);
       });
+      room.onMessage(
+        "hitReceived",
+        (payload: { dirX: number; dirY: number; dirZ: number }) => {
+          onHitReceived(payload.dirX, payload.dirY, payload.dirZ);
+        }
+      );
       await waitForLocalSpawnAndSync(room);
     }
   }

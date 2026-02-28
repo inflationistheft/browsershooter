@@ -125,17 +125,11 @@ export class FPSMovementController {
 
     if (this.state === "airborne") {
       if (input.slideJustPressed || input.slideIntentTicks > 0) this.slideOnLand = true;
-      const cos = Math.cos(this.yaw);
-      const sin = Math.sin(this.yaw);
-      const axAir = (input.moveX * cos - input.moveZ * sin) * t.airAccel * dt * 0.3;
-      const azAir = (-input.moveX * sin - input.moveZ * cos) * t.airAccel * dt * 0.3;
-      this.velocity.x += axAir;
-      this.velocity.z += azAir;
+      // Preserve horizontal speed from jump; no air acceleration
       const hor = Math.hypot(this.velocity.x, this.velocity.z);
-      const airCap = Math.min(t.airMaxSpeed, this.horSpeedWhenJumped);
-      if (hor > airCap && airCap > 0) {
-        this.velocity.x *= airCap / hor;
-        this.velocity.z *= airCap / hor;
+      if (hor > this.horSpeedWhenJumped && this.horSpeedWhenJumped > 0) {
+        this.velocity.x *= this.horSpeedWhenJumped / hor;
+        this.velocity.z *= this.horSpeedWhenJumped / hor;
       }
       this.velocity.y -= t.gravity * dt;
       this.velocity.y = Math.max(this.velocity.y, -t.maxFallSpeed);

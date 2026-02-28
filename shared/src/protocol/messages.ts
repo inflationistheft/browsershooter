@@ -11,4 +11,8 @@ export type ClientMessage =
 
 export type ServerMessage =
   | { type: "pong"; payload: { clientTime: number; serverTime: number } }
-  | { type: "hit"; payload: { targetId: string; damage: number } };
+  | { type: "hit"; payload: { targetId: string; damage: number } }
+  | {
+      type: "hitReceived";
+      payload: { dirX: number; dirY: number; dirZ: number; damage?: number };
+    };

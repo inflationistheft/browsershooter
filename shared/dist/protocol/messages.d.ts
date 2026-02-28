@@ -24,5 +24,13 @@ export type ServerMessage = {
         targetId: string;
         damage: number;
     };
+} | {
+    type: "hitReceived";
+    payload: {
+        dirX: number;
+        dirY: number;
+        dirZ: number;
+        damage?: number;
+    };
 };
 //# sourceMappingURL=messages.d.ts.map
