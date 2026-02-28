@@ -19,8 +19,8 @@ export class PlayerStateSchema extends Schema {
   @type("string") animationState = "idle";
   /** Playback scale for strafe clips (0.7 when not sprinting, 1 when sprinting). */
   @type("number") animationTimeScale = 1;
-  @type("number") health = 100;
-  @type("number") maxHealth = 100;
+  @type("number") health = 150;
+  @type("number") maxHealth = 150;
   @type("string") currentWeapon = "rifle";
   @type("number") ammo = 30;
   @type("number") maxAmmo = 30;

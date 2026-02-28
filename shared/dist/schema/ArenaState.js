@@ -28,8 +28,8 @@ export class PlayerStateSchema extends Schema {
         this.animationState = "idle";
         /** Playback scale for strafe clips (0.7 when not sprinting, 1 when sprinting). */
         this.animationTimeScale = 1;
-        this.health = 100;
-        this.maxHealth = 100;
+        this.health = 150;
+        this.maxHealth = 150;
         this.currentWeapon = "rifle";
         this.ammo = 30;
         this.maxAmmo = 30;

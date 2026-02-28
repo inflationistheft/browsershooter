@@ -12,19 +12,31 @@ import { FPSMovementController } from "./systems/movement/FPSMovementController.
 import { SceneManager } from "./systems/rendering/SceneManager.js";
 import { createHUD, updateHUD } from "./systems/ui/HUD.js";
 import {
+  createPlayerHealthBars,
+  onPlayerHit,
+  updatePlayerHealthBars,
+} from "./systems/ui/PlayerHealthBars.js";
+import {
   createLoadingScreen,
   setLoadingMessage,
   hideLoadingScreen,
 } from "./systems/ui/LoadingScreen.js";
 import { createDebugOverlay, updateDebugOverlay } from "./debug/DebugOverlay.js";
+import { DebugHitboxVisualization } from "./debug/DebugVisualization.js";
 import { WEAPON_STUB } from "./systems/gameplay/WeaponStub.js";
 import { ColyseusClient } from "./systems/networking/ColyseusClient.js";
-import { inputStateToPlayerInput } from "./systems/networking/inputMapping.js";
+import {
+  inputStateToPlayerInput,
+  type HitboxPositionsInput,
+} from "./systems/networking/inputMapping.js";
+import {
+  getHitboxPositionsFromModel,
+  type HitboxPositions,
+} from "./systems/animation/getHitboxPositions.js";
 import { resolveAnimationClipId } from "shared";
 import type { ArenaState, PlayerStateSchema } from "shared";
 import {
-  loadPlayerModel,
-  loadDummyModel,
+  loadPlayerModelWithAnimations,
   loadSkinTexture,
   applySkinToModel,
   setModelSkin,
@@ -73,7 +85,15 @@ canvas.addEventListener("mouseup", (e) => e.button === 0 && input.setShoot(false
 const movement = new FPSMovementController();
 createLoadingScreen(app);
 createHUD(app);
+createPlayerHealthBars(app);
 if (clientConfig.debugOverlay) createDebugOverlay(app);
+
+const debugHitboxes = new DebugHitboxVisualization(sceneManager.getScene());
+let debugMode = false;
+/** Bone-anchored hitbox positions from previous render (for input and debug viz). */
+let lastHitboxPositions: HitboxPositionsInput | null = null;
+/** Raw bone positions (Vector3) for debug viz when available. */
+let lastHitboxPositionsRaw: HitboxPositions | null = null;
 
 const physics = { raycast: (): boolean => false };
 const loop = new GameLoop();
@@ -86,56 +106,36 @@ const CROUCH_TRANSITION_TAU = 0.04; // ~120ms to 95%
 
 // Player model (FPS): attached to camera
 let playerViewModel: THREE.Object3D | null = null;
-/** Mixer for local FPS view model (only when using same GLB as dummy). */
+/** Mixer for local FPS view model (when player.glb has animations). */
 let localPlayerMixer: THREE.AnimationMixer | null = null;
-/** Template for cloning remote players (same model as dummies). */
-let dummyTemplate: THREE.Object3D | null = null;
-let dummyIdleClip: THREE.AnimationClip | undefined;
+/** Template for cloning all players (local + remote). From player.glb. */
+let playerTemplate: THREE.Object3D | null = null;
 let playerAnimationSystem: PlayerAnimationSystem;
+/** Invisible clone at movement.position for correct hitbox (camera model is offset). */
+let hitboxDummy: THREE.Object3D | null = null;
+let hitboxDummyMixer: THREE.AnimationMixer | null = null;
 /** Remote players: sessionId -> { mesh, mixer } */
 const remotePlayerMeshes = new Map<string, THREE.Object3D>();
 const remotePlayerMixers = new Map<string, THREE.AnimationMixer>();
 /** Interpolation: 1 - exp(-dt/TAU). ~100ms to 95% of target. */
 const REMOTE_INTERP_TAU = 0.05;
-/** Distance threshold (m) before correcting local position toward server. */
-const RECONCILE_THRESHOLD = 0.5;
+/** Distance threshold (m) before applying strong correction. Below this, gentle pull to prevent drift. */
+const RECONCILE_THRESHOLD = 0.05;
 /** Blend factor when reconciling (higher = faster correction). */
-const RECONCILE_LERP = 0.25;
+const RECONCILE_LERP = 0.5;
+/** Minimal distance to trigger any correction (avoids jitter). */
+const RECONCILE_MIN = 0.01;
 /** True after we have applied initial spawn from server (fallback for late state sync). */
 let hasAppliedInitialSpawn = false;
-/** Idle = "idleaiming" (zusammengeschrieben) oder "idle aiming", case-insensitive; sonst "idle", sonst erster Clip. */
-function findIdleClip(animations: THREE.AnimationClip[]): THREE.AnimationClip | undefined {
-  if (!animations.length) return undefined;
-  const normalized = (n: string) => n.toLowerCase().replace(/\s+/g, "");
-  const idleAiming = animations.find((c) => normalized(c.name) === "idleaiming");
-  if (idleAiming) return idleAiming;
-  const idle = animations.find((c) => c.name === "idle");
-  if (idle) return idle;
-  return animations[0];
-}
-
 async function initAssets(): Promise<void> {
   setLoadingMessage("Loading characters and arena…", 15);
-  const useSameModel =
-    clientConfig.playerModelUrl === clientConfig.dummyModelUrl &&
-    clientConfig.playerModelUrl.trim() !== "";
 
-  let playerModel: THREE.Object3D;
-  let dummyResult: { scene: THREE.Object3D; animations: THREE.AnimationClip[] };
+  const playerResult = await loadPlayerModelWithAnimations(clientConfig.playerModelUrl);
+  playerTemplate = playerResult.scene;
+  const playerAnimations = playerResult.animations;
 
-  if (useSameModel) {
-    dummyResult = await loadDummyModel(clientConfig.dummyModelUrl);
-    playerModel = cloneSkeleton(dummyResult.scene);
-    playerModel.updateMatrixWorld(true);
-  } else {
-    const [pm, dr] = await Promise.all([
-      loadPlayerModel(clientConfig.playerModelUrl),
-      loadDummyModel(clientConfig.dummyModelUrl),
-    ]);
-    playerModel = pm;
-    dummyResult = dr;
-  }
-
+  const playerModel = cloneSkeleton(playerTemplate);
+  playerModel.updateMatrixWorld(true);
   playerViewModel = playerModel;
 
   // Load and apply player skin (PNG from /models/skins/{id}.png)
@@ -151,15 +151,23 @@ async function initAssets(): Promise<void> {
   playerModel.scale.setScalar(1);
 
   setLoadingMessage("Loading characters and arena…", 40);
-  const idleClip = findIdleClip(dummyResult.animations);
-  dummyTemplate = dummyResult.scene;
-  dummyIdleClip = idleClip;
   playerAnimationSystem = new PlayerAnimationSystem(clientConfig.animationClipNames);
-  playerAnimationSystem.init(dummyResult.animations);
+  playerAnimationSystem.init(playerAnimations);
 
-  if (useSameModel && dummyResult.animations.length > 0) {
+  if (playerAnimations.length > 0) {
     localPlayerMixer = new THREE.AnimationMixer(playerModel);
     playerAnimationSystem.playClip(localPlayerMixer, "idle");
+  }
+
+  if (playerTemplate) {
+    const dummy = cloneSkeleton(playerTemplate);
+    dummy.visible = false;
+    sceneManager.getScene().add(dummy);
+    hitboxDummy = dummy;
+    if (playerAnimations.length > 0) {
+      hitboxDummyMixer = new THREE.AnimationMixer(dummy);
+      playerAnimationSystem.playClip(hitboxDummyMixer, "idle");
+    }
   }
 }
 
@@ -173,8 +181,8 @@ function addRemotePlayerMesh(
 
   const scene = sceneManager.getScene();
   let clone: THREE.Object3D;
-  if (dummyTemplate && dummyIdleClip) {
-    clone = cloneSkeleton(dummyTemplate);
+  if (playerTemplate) {
+    clone = cloneSkeleton(playerTemplate);
     clone.updateMatrixWorld(true);
     loadSkinTexture("orange").then((tex) => {
       if (tex) applySkinToModel(clone, tex);
@@ -253,8 +261,8 @@ function reconcileLocalWithServer(room: { sessionId: string; state: ArenaState }
   const dy = localState.y - movement.position.y;
   const dz = localState.z - movement.position.z;
   const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-  if (dist <= RECONCILE_THRESHOLD) return;
-  const t = RECONCILE_LERP;
+  if (dist <= RECONCILE_MIN) return;
+  const t = dist >= RECONCILE_THRESHOLD ? RECONCILE_LERP : 0.15;
   movement.position.x += dx * t;
   movement.position.y += dy * t;
   movement.position.z += dz * t;
@@ -298,20 +306,23 @@ function updateRemotePlayers(
       mesh = remotePlayerMeshes.get(key);
     }
     if (mesh) {
-      mesh.position.lerp(
-        new THREE.Vector3(player.x, player.y, player.z),
-        alpha
-      );
-      const targetYaw = player.yaw + Math.PI;
-      const dy = ((targetYaw - mesh.rotation.y + Math.PI) % (2 * Math.PI)) - Math.PI;
-      mesh.rotation.y += dy * alpha;
-      const mixer = remotePlayerMixers.get(key);
-      if (mixer) {
-        const clipId = player.animationState || "idle";
-        const ctx: { vy?: number; sprint?: boolean; timeScale?: number } = {};
-        if (clipId === "jump") ctx.vy = player.vy;
-        if (player.animationTimeScale !== 1) ctx.timeScale = player.animationTimeScale;
-        playerAnimationSystem.playClip(mixer, clipId, Object.keys(ctx).length ? ctx : undefined);
+      mesh.visible = player.health > 0;
+      if (mesh.visible) {
+        mesh.position.lerp(
+          new THREE.Vector3(player.x, player.y, player.z),
+          alpha
+        );
+        const targetYaw = player.yaw + Math.PI;
+        const dy = ((targetYaw - mesh.rotation.y + Math.PI) % (2 * Math.PI)) - Math.PI;
+        mesh.rotation.y += dy * alpha;
+        const mixer = remotePlayerMixers.get(key);
+        if (mixer) {
+          const clipId = player.animationState || "idle";
+          const ctx: { vy?: number; sprint?: boolean; timeScale?: number } = {};
+          if (clipId === "jump") ctx.vy = player.vy;
+          if (player.animationTimeScale !== 1) ctx.timeScale = player.animationTimeScale;
+          playerAnimationSystem.playClip(mixer, clipId, Object.keys(ctx).length ? ctx : undefined);
+        }
       }
     }
   });
@@ -328,14 +339,8 @@ function updateRemotePlayers(
 loop
   .setTickCallback((dt) => {
     const state = input.getState();
+    if (state.debugModeJustPressed) debugMode = !debugMode;
     movement.update(dt, state, physics);
-    const room = netClient.getRoom();
-    if (room) {
-      netClient.sendInput(inputStateToPlayerInput(state, inputTick));
-      inputTick++;
-      reconcileLocalWithServer(room);
-    }
-    input.tick();
     const snap = movement.getSnapshot();
     const targetEyeHeight = snap.crouching ? CROUCH_EYE_HEIGHT : PLAYER_EYE_HEIGHT;
     currentEyeHeight = THREE.MathUtils.lerp(
@@ -345,6 +350,23 @@ loop
     );
     cameraSystem.setTargetPosition(snap.position.x, snap.position.y + currentEyeHeight, snap.position.z);
     cameraSystem.setRotation(snap.yaw, snap.pitch);
+    const room = netClient.getRoom();
+    if (room) {
+      const aimDir = cameraSystem.getAimDirection();
+      const hitboxForInput = lastHitboxPositions ?? undefined;
+      const playerInput = inputStateToPlayerInput(
+        state,
+        inputTick,
+        snap.position,
+        hitboxForInput ?? undefined,
+        { x: aimDir.x, y: aimDir.y, z: aimDir.z },
+        debugMode
+      );
+      netClient.sendInput(playerInput);
+      inputTick++;
+      reconcileLocalWithServer(room);
+    }
+    input.tick();
   })
   .setRenderCallback((dt) => {
     const state = input.getState();
@@ -365,14 +387,99 @@ loop
     cameraSystem.update(dt);
     if (localPlayerMixer) localPlayerMixer.update(dt);
     remotePlayerMixers.forEach((m) => m.update(dt));
+    if (hitboxDummy) {
+      hitboxDummy.position.set(snap.position.x, snap.position.y, snap.position.z);
+      hitboxDummy.rotation.set(0, snap.yaw + Math.PI, 0);
+      if (hitboxDummyMixer) {
+        const clipId = resolveAnimationClipId({
+          moveX: state.moveX,
+          moveZ: state.moveZ,
+          sprint: state.sprint,
+          crouching: snap.crouching,
+          movementState: snap.state,
+        });
+        const ctx: { vy?: number; sprint?: boolean } = {};
+        if (clipId === "jump") ctx.vy = snap.velocity.y;
+        if (clipId === "strafeLeftFast" || clipId === "strafeRightFast") ctx.sprint = state.sprint;
+        playerAnimationSystem.playClip(hitboxDummyMixer, clipId, Object.keys(ctx).length ? ctx : undefined);
+        hitboxDummyMixer.update(dt);
+      }
+      const positions = getHitboxPositionsFromModel(hitboxDummy);
+      if (positions) {
+        lastHitboxPositionsRaw = positions;
+        lastHitboxPositions = {
+          head: { x: positions.head.x, y: positions.head.y, z: positions.head.z },
+          bodyCenter: {
+            x: positions.bodyCenter.x,
+            y: positions.bodyCenter.y,
+            z: positions.bodyCenter.z,
+          },
+          spineTop: {
+            x: positions.spineTop.x,
+            y: positions.spineTop.y,
+            z: positions.spineTop.z,
+          },
+          pelvis: {
+            x: positions.pelvis.x,
+            y: positions.pelvis.y,
+            z: positions.pelvis.z,
+          },
+          feet: {
+            x: positions.feet.x,
+            y: positions.feet.y,
+            z: positions.feet.z,
+          },
+        };
+      } else {
+        lastHitboxPositionsRaw = null;
+        lastHitboxPositions = null;
+      }
+    } else {
+      lastHitboxPositionsRaw = null;
+      lastHitboxPositions = null;
+    }
     updateRemotePlayers(netClient.getRoom(), dt);
+    debugHitboxes.setVisible(debugMode);
+    const roomForDebug = netClient.getRoom();
+    const localPos = debugMode ? movement.position : null;
+    const remotePositions = roomForDebug
+      ? Array.from(roomForDebug.state.players.entries())
+          .filter(([k]) => k !== roomForDebug.sessionId)
+          .filter(([, p]) => p.health > 0)
+          .map(([id, p]) => {
+            const mesh = remotePlayerMeshes.get(id);
+            const hitboxPositions = mesh
+              ? getHitboxPositionsFromModel(mesh)
+              : undefined;
+            return {
+              id,
+              x: p.x,
+              y: p.y,
+              z: p.z,
+              hitboxPositions: hitboxPositions ?? undefined,
+            };
+          })
+      : [];
+    const aimRay =
+      debugMode && localPos ? { camera: cameraSystem.getCamera() } : undefined;
+    debugHitboxes.update(
+      localPos,
+      remotePositions,
+      lastHitboxPositionsRaw ?? undefined,
+      aimRay
+    );
     sceneManager.render(cameraSystem.getCamera());
+    updatePlayerHealthBars(
+      netClient.getRoom(),
+      cameraSystem.getCamera(),
+      dt
+    );
     const room = netClient.getRoom();
     const localPlayer = room ? room.state.players.get(room.sessionId) : null;
     const hp = localPlayer?.health ?? DEFAULT_MAX_HEALTH;
     const ammo = localPlayer?.ammo ?? WEAPON_STUB.ammo;
     const maxAmmo = localPlayer?.maxAmmo ?? WEAPON_STUB.maxAmmo;
-    updateHUD(hp, ammo, maxAmmo);
+    updateHUD(hp, ammo, maxAmmo, debugMode);
     if (clientConfig.debugOverlay) {
       const snap = movement.getSnapshot();
       const room = netClient.getRoom();
@@ -380,7 +487,7 @@ loop
         room !== null
           ? { connected: true, playerCount: room.state.players.size }
           : { connected: false, playerCount: 0 };
-      updateDebugOverlay(snap.velocity, snap.state, input.getState().sprint, netInfo);
+      updateDebugOverlay(snap.velocity, snap.state, input.getState().sprint, netInfo, debugMode);
     }
   });
 
@@ -401,12 +508,14 @@ initAssets().then(async () => {
     const room = netClient.getRoom();
     if (room) {
       setupRemotePlayers(room);
+      room.onMessage("hit", (payload: { targetId: string }) => {
+        onPlayerHit(payload.targetId);
+      });
       await waitForLocalSpawnAndSync(room);
     }
   }
   setLoadingMessage("Ready!", 100);
   await new Promise((r) => setTimeout(r, 300));
-  hideLoadingScreen();
   const snap = movement.getSnapshot();
   cameraSystem.setTargetPosition(
     snap.position.x,
@@ -414,7 +523,8 @@ initAssets().then(async () => {
     snap.position.z
   );
   cameraSystem.setRotation(snap.yaw, snap.pitch);
-  cameraSystem.update(1 / 60);
+  cameraSystem.snapToTarget();
+  hideLoadingScreen();
   loop.start();
   // Dev: setPlayerSkin('orange') in console to change player skin at runtime
   if (clientConfig.debugOverlay && typeof window !== "undefined") {

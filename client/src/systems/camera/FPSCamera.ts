@@ -24,6 +24,30 @@ export class FPSCamera {
     this.pitch = pitch;
   }
 
+  /** Sync rotation to camera and return world-space aim direction (crosshair direction). */
+  getAimDirection(): THREE.Vector3 {
+    this.camera.rotation.order = "YXZ";
+    this.camera.rotation.y = this.yaw;
+    this.camera.rotation.x = this.pitch;
+    this.camera.rotation.z = 0;
+    this.camera.updateMatrixWorld(true);
+    const dir = new THREE.Vector3();
+    this.camera.getWorldDirection(dir);
+    return dir;
+  }
+
+  /** Instantly snap camera to current target position (no lerp). Use for initial spawn to avoid visible slide from origin. */
+  snapToTarget(): void {
+    this.camera.position.x = this.targetPosition.x;
+    this.camera.position.y = this.targetPosition.y;
+    this.camera.position.z = this.targetPosition.z;
+    this.camera.rotation.order = "YXZ";
+    this.camera.rotation.y = this.yaw;
+    this.camera.rotation.x = this.pitch;
+    this.camera.rotation.z = 0;
+    this.camera.updateMatrixWorld();
+  }
+
   update(dt: number): void {
     this.camera.position.x = THREE.MathUtils.lerp(
       this.camera.position.x,

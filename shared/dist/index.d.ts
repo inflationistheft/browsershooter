@@ -5,4 +5,6 @@ export * from "./protocol/messages.js";
 export * from "./constants/index.js";
 export * from "./tuning/index.js";
 export * from "./arena/index.js";
+export * from "./hitscan/rayIntersection.js";
+export * from "./hitbox/boneNames.js";
 //# sourceMappingURL=index.d.ts.map

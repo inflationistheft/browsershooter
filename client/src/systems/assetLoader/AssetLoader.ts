@@ -30,6 +30,29 @@ export async function loadPlayerModel(url: string): Promise<THREE.Object3D> {
   }
 }
 
+export interface ModelLoadResult {
+  scene: THREE.Object3D;
+  animations: THREE.AnimationClip[];
+}
+
+/** Load player model with animations (for bone-anchored hitbox when player.glb differs from dummy.glb). */
+export async function loadPlayerModelWithAnimations(
+  url: string
+): Promise<ModelLoadResult> {
+  if (!url.trim()) {
+    return { scene: createPlaceholderMesh(), animations: [] };
+  }
+  try {
+    const gltf = await gltfLoader.loadAsync(url);
+    return {
+      scene: gltf.scene,
+      animations: gltf.animations ?? [],
+    };
+  } catch {
+    return { scene: createPlaceholderMesh(), animations: [] };
+  }
+}
+
 export interface DummyLoadResult {
   scene: THREE.Object3D;
   animations: THREE.AnimationClip[];

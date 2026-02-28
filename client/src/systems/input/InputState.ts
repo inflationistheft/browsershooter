@@ -16,6 +16,8 @@ export interface InputState {
   pitch: number;
   shoot: boolean;
   reload: boolean;
+  /** True on keydown of KeyB (debug toggle). Consumed by tick(). */
+  debugModeJustPressed: boolean;
 }
 
 export const defaultInputState: InputState = {
@@ -30,6 +32,7 @@ export const defaultInputState: InputState = {
   pitch: 0,
   shoot: false,
   reload: false,
+  debugModeJustPressed: false,
 };
 
 /** Key codes to lock when pointer lock is active so browser does not handle Ctrl+W / Ctrl+N / Ctrl+T. */
@@ -77,9 +80,10 @@ export class InputSampler {
     return this.state;
   }
 
-  /** Call once per tick; decrements slide intent. */
+  /** Call once per tick; decrements slide intent and consumes one-shot flags. */
   tick(): void {
     if (this._slideIntentTicks > 0) this._slideIntentTicks--;
+    this.state.debugModeJustPressed = false;
   }
 
   isPointerLocked(): boolean {
@@ -171,6 +175,10 @@ export class InputSampler {
       this.state.jump = down;
     }
     if (code === "KeyR") this.state.reload = down;
+    if (code === "KeyB" && down) {
+      e.preventDefault();
+      this.state.debugModeJustPressed = true;
+    }
   }
 
   setShoot(down: boolean): void {

@@ -27,7 +27,8 @@ export function updateDebugOverlay(
   netInfo?: {
     connected: boolean;
     playerCount: number;
-  }
+  },
+  debugMode?: boolean
 ): void {
   frameCount++;
   const now = performance.now();
@@ -46,6 +47,7 @@ export function updateDebugOverlay(
     if (netInfo !== undefined) {
       netStr = ` | Net: ${netInfo.connected ? "ok" : "off"} | In room: ${netInfo.playerCount}`;
     }
-    el.textContent = `FPS: ${fps} | Vel: ${velocity.x.toFixed(1)}, ${velocity.y.toFixed(1)}, ${velocity.z.toFixed(1)} | State: ${state}${sprintStr}${netStr}`;
+    const debugStr = debugMode ? " | [B] Debug: ON" : "";
+    el.textContent = `FPS: ${fps} | Vel: ${velocity.x.toFixed(1)}, ${velocity.y.toFixed(1)}, ${velocity.z.toFixed(1)} | State: ${state}${sprintStr}${netStr}${debugStr}`;
   }
 }

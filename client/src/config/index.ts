@@ -12,8 +12,9 @@ export const clientConfig = {
   /** Log level: "error" | "warn" | "info" | "debug" */
   logLevel: "info" as const,
 
-  /** GLB URLs for player (FPS view model) and dummies. Override via .env: VITE_PLAYER_MODEL_URL, VITE_DUMMY_MODEL_URL */
+  /** GLB for all players (local + remote). Animations in this file drive bone-anchored hitboxes. */
   playerModelUrl: (import.meta as unknown as { env?: { VITE_PLAYER_MODEL_URL?: string } }).env?.VITE_PLAYER_MODEL_URL ?? "/models/player.glb",
+  /** GLB for static dummies (optional, future use). Not used for playable characters. */
   dummyModelUrl: (import.meta as unknown as { env?: { VITE_DUMMY_MODEL_URL?: string } }).env?.VITE_DUMMY_MODEL_URL ?? "/models/dummy.glb",
 
   /** Skin ID for player (PNG in /models/skins/{id}.png). Empty = use embedded GLB texture. */

@@ -2,7 +2,9 @@
  * Arena geometry: wall AABBs, bounds. Used by client (collision) and server (validation).
  * 1 unit = 1 m. Matches SceneManager: 40x40 floor, walls 40x4x0.5.
  */
-/** Walls: [xMin, xMax, zMin, zMax] in world. */
+/** Wall height in meters (Y extent from ground). */
+export declare const ARENA_WALL_HEIGHT = 4;
+/** Walls: [xMin, xMax, zMin, zMax] in world (XZ footprint). */
 export declare const ARENA_WALLS: ReadonlyArray<readonly [number, number, number, number]>;
 export declare const ARENA_HALF = 20;
 export declare const ARENA_SIZE: number;
@@ -23,4 +25,12 @@ export declare function applyWallVelocitySlide(velocity: {
     x: number;
     z: number;
 }, result: ArenaWallResult): void;
+/**
+ * Ray vs arena walls. Returns smallest t in (0, maxT] where ray hits a wall, or null.
+ * Used for LOS check: if ray hits wall before target, reject hit.
+ */
+export declare function rayArenaIntersection(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, maxT: number): {
+    hit: boolean;
+    t?: number;
+};
 //# sourceMappingURL=index.d.ts.map

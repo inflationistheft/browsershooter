@@ -1,4 +1,5 @@
 ---
+description: 
 alwaysApply: true
 ---
 
@@ -96,3 +97,5 @@ WORKFLOW
 - Make the smallest clean change that fits the system.
 - If architecture or data formats change, update docs/.
 - Mention assumptions and affected files in your response.
+
+KISS keep it simple stuipid

@@ -38,6 +38,32 @@ export interface PlayerInput {
   pitch: number;
   shoot: boolean;
   reload: boolean;
+  /** Client-reported position (for lag compensation). */
+  clientX?: number;
+  clientY?: number;
+  clientZ?: number;
+  /** Bone offsets from player root (client sends; server adds root to get world pos). */
+  headX?: number;
+  headY?: number;
+  headZ?: number;
+  bodyCenterX?: number;
+  bodyCenterY?: number;
+  bodyCenterZ?: number;
+  spineTopX?: number;
+  spineTopY?: number;
+  spineTopZ?: number;
+  pelvisX?: number;
+  pelvisY?: number;
+  pelvisZ?: number;
+  feetX?: number;
+  feetY?: number;
+  feetZ?: number;
+  /** Aim direction when shooting (matches crosshair). Client sends camera forward. */
+  aimDirX?: number;
+  aimDirY?: number;
+  aimDirZ?: number;
+  /** When true, server grants infinite ammo (client-side debug toggle via B). */
+  debugMode?: boolean;
 }
 
 export interface MapPrefabPlacement {
