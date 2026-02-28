@@ -1,7 +1,6 @@
 /**
  * FFA Arena room: tick loop, state sync, placeholder movement.
  */
-import * as fs from "fs";
 import { Room } from "@colyseus/core";
 import { movementTuning, resolveArenaWalls, applyWallVelocitySlide, rayArenaIntersection, resolveAnimationClipId, TICK_RATE, PLAYER_RADIUS, PLAYER_EYE_HEIGHT, CROUCH_EYE_HEIGHT, HITSCAN_RANGE, HITSCAN_DAMAGE, RELOAD_TICKS, DEFAULT_MAX_HEALTH, RESPAWN_DELAY_SEC, HEAD_HITBOX_HEIGHT, HEAD_HITBOX_RADIUS, BODY_CAPSULE_TOP, BODY_CAPSULE_RADIUS, BODY_CAPSULE_TOP_EXTEND, raySphereIntersection, rayCapsuleIntersection, DEBUG_HEAD_ONLY, } from "shared";
 import { ArenaState, PlayerStateSchema } from "shared";
@@ -147,12 +146,6 @@ export class ArenaFFARoom extends Room {
                         hor > 0.1 &&
                         (inputWorldX * player.vx + inputWorldZ * player.vz) / (inputMag * hor) < 0.5;
                     if (inputCancelsSlide) {
-                        // #region agent log
-                        try {
-                            fs.appendFileSync("/home/seba/GitHub/browsershooter/.cursor/debug-0b0c37.log", JSON.stringify({ sessionId: "0b0c37", location: "ArenaFFA.ts:inputCancelsSlide", message: "Slide exit server: inputCancelsSlide", data: { lastInputSlide: lastInput.slide }, hypothesisId: "A", timestamp: Date.now() }) + "\n");
-                        }
-                        catch { }
-                        // #endregion
                         player.movementState = "grounded";
                         ext._slideEnterCooldownTimer = t.slideEnterCooldown;
                     }
@@ -171,12 +164,6 @@ export class ArenaFFARoom extends Room {
                             ext._horSpeedWhenJumped = Math.hypot(player.vx, player.vz);
                         }
                         else if (!stillSliding) {
-                            // #region agent log
-                            try {
-                                fs.appendFileSync("/home/seba/GitHub/browsershooter/.cursor/debug-0b0c37.log", JSON.stringify({ sessionId: "0b0c37", location: "ArenaFFA.ts:!stillSliding", message: "Slide exit server: !stillSliding", data: { hor, slideTime: extSlide._slideTime }, hypothesisId: "A", timestamp: Date.now() }) + "\n");
-                            }
-                            catch { }
-                            // #endregion
                             player.movementState = player.y <= GROUND_Y + 0.01 ? "grounded" : "airborne";
                             ext._slideEnterCooldownTimer = t.slideEnterCooldown;
                         }
@@ -201,12 +188,6 @@ export class ArenaFFARoom extends Room {
                         slideEnterCooldownOk &&
                         horSpeed >= t.slideEnterSpeed;
                     if (canGroundSlide) {
-                        // #region agent log
-                        try {
-                            fs.appendFileSync("/home/seba/GitHub/browsershooter/.cursor/debug-0b0c37.log", JSON.stringify({ sessionId: "0b0c37", location: "ArenaFFA.ts:canGroundSlide", message: "Slide ENTER server", data: { horSpeed, slideEnterCooldown: ext._slideEnterCooldownTimer }, hypothesisId: "A", timestamp: Date.now() }) + "\n");
-                        }
-                        catch { }
-                        // #endregion
                         player.movementState = "sliding";
                         ext._slideTime = 0;
                         const hor = Math.hypot(player.vx, player.vz);
