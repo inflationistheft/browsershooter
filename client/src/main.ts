@@ -460,13 +460,10 @@ loop
             };
           })
       : [];
-    const aimRay =
-      debugMode && localPos ? { camera: cameraSystem.getCamera() } : undefined;
     debugHitboxes.update(
       localPos,
       remotePositions,
-      lastHitboxPositionsRaw ?? undefined,
-      aimRay
+      lastHitboxPositionsRaw ?? undefined
     );
     sceneManager.render(cameraSystem.getCamera());
     updatePlayerHealthBars(

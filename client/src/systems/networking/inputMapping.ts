@@ -45,18 +45,18 @@ export function inputStateToPlayerInput(
     out.aimDirZ = aimDir.z;
   }
   if (debugMode) out.debugMode = true;
-  if (hitboxPositions) {
-    // Use feet as reference – all bones from same model, offsets always < 2m for humanoid
-    const feet = hitboxPositions.feet;
+  if (hitboxPositions && clientPos) {
+    // Use clientPos as reference so server gets: player + (head - clientPos) ≈ head
     const toOffset = (b: { x: number; y: number; z: number }) => ({
-      x: b.x - feet.x,
-      y: b.y - feet.y,
-      z: b.z - feet.z,
+      x: b.x - clientPos.x,
+      y: b.y - clientPos.y,
+      z: b.z - clientPos.z,
     });
     const headO = toOffset(hitboxPositions.head);
     const bodyO = toOffset(hitboxPositions.bodyCenter);
     const spineO = toOffset(hitboxPositions.spineTop);
     const pelvisO = toOffset(hitboxPositions.pelvis);
+    const feetO = toOffset(hitboxPositions.feet);
     out.headX = headO.x;
     out.headY = headO.y;
     out.headZ = headO.z;
@@ -69,9 +69,9 @@ export function inputStateToPlayerInput(
     out.pelvisX = pelvisO.x;
     out.pelvisY = pelvisO.y;
     out.pelvisZ = pelvisO.z;
-    out.feetX = 0;
-    out.feetY = 0;
-    out.feetZ = 0;
+    out.feetX = feetO.x;
+    out.feetY = feetO.y;
+    out.feetZ = feetO.z;
   }
   return out;
 }

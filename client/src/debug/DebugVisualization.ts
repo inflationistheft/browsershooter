@@ -13,14 +13,10 @@ import {
   BODY_CAPSULE_RADIUS,
   BODY_CAPSULE_TOP_EXTEND,
   LEGS_CAPSULE_RADIUS,
-  HITSCAN_RANGE,
   DEBUG_HEAD_ONLY,
 } from "shared";
 
 const HITBOX_OPACITY = 0.3;
-/** Ray starts 1m in front of camera so it's visible from the side, not end-on. */
-const AIM_RAY_OFFSET = 1;
-const AIM_RAY_LENGTH = 50;
 const AIM_RAY_COLOR = 0xffff00;
 /** Cylinder radius for visibility (thin line is hard to see). */
 const AIM_RAY_RADIUS = 0.015;
@@ -132,6 +128,7 @@ function setHitboxPositions(
   if (bonePositions) {
     const { head, bodyCenter, spineTop, pelvis, feet } = bonePositions;
     group.position.set(0, 0, 0);
+    // Use direct bone positions (world space from getHitboxPositions) – matches server hitscan
     headChild.position.set(head.x, head.y, head.z);
     const bodyTopY = spineTop.y + BODY_CAPSULE_TOP_EXTEND;
     const bodyLength = bodyTopY - pelvis.y;
@@ -203,7 +200,7 @@ export class DebugHitboxVisualization {
   setVisible(visible: boolean): void {
     this.visible = visible;
     this.localGroup.visible = visible;
-    this.aimRayGroup.visible = visible;
+    this.aimRayGroup.visible = false;
     this.remoteGroups.forEach((g) => (g.visible = false));
   }
 
@@ -216,8 +213,7 @@ export class DebugHitboxVisualization {
       z: number;
       hitboxPositions?: HitboxBonePositions;
     }>,
-    localHitboxPositions?: HitboxBonePositions,
-    aimRay?: { camera: THREE.PerspectiveCamera }
+    localHitboxPositions?: HitboxBonePositions
   ): void {
     if (!this.visible) return;
 
@@ -227,26 +223,6 @@ export class DebugHitboxVisualization {
         localPosition,
         localHitboxPositions
       );
-    }
-
-    if (aimRay?.camera) {
-      const camPos = new THREE.Vector3();
-      aimRay.camera.getWorldPosition(camPos);
-      const dir = new THREE.Vector3();
-      aimRay.camera.getWorldDirection(dir);
-      const len = Math.min(AIM_RAY_LENGTH, HITSCAN_RANGE);
-      const start = camPos.clone().add(dir.clone().multiplyScalar(AIM_RAY_OFFSET));
-      const end = start.clone().add(dir.clone().multiplyScalar(len));
-      const mid = start.clone().add(end).multiplyScalar(0.5);
-      this.aimRayGroup.position.set(mid.x, mid.y, mid.z);
-      this.aimRayGroup.scale.set(1, len, 1);
-      this.aimRayGroup.quaternion.setFromUnitVectors(
-        new THREE.Vector3(0, 1, 0),
-        dir.clone().normalize()
-      );
-      this.aimRayGroup.visible = true;
-    } else {
-      this.aimRayGroup.visible = false;
     }
 
     remotePositions.forEach((p, i) => {
