@@ -1,5 +1,5 @@
 /**
- * FPS movement: state machine (grounded / sliding / airborne), sprint, jump, slide, slide jump.
+ * FPS movement: state machine (grounded / sliding / airborne), jump, slide, slide jump.
  * Same snapshot interface as DummyMovementController for drop-in use.
  */
 
@@ -37,10 +37,6 @@ export class FPSMovementController {
   private crouching = false;
   /** C was pressed in air → enter slide on land without holding C. */
   private slideOnLand = false;
-  /** Time spent sprinting (ground only); must exceed slideEnterMinSprintTime before ground slide. */
-  private sprintWarmupTime = 0;
-  /** Grace after releasing Shift – can still enter slide while speed remains high. */
-  private sprintReleaseGrace = 0;
   /** Seconds left before slide jump can be used again. */
   private slideJumpCooldownTimer = 0;
   /** Seconds left before entering a new slide (prevents infinite re-entry while holding C). */
@@ -170,22 +166,11 @@ export class FPSMovementController {
       return;
     }
 
-    // Ground slide: sprinting (or brief grace after release) + warmup; slide gives speed boost
-    if (input.sprint) {
-      this.sprintWarmupTime += dt;
-      this.sprintReleaseGrace = t.slideSprintReleaseGrace;
-    } else {
-      this.sprintWarmupTime = 0;
-      this.sprintReleaseGrace = Math.max(0, this.sprintReleaseGrace - dt);
-    }
-    const hadRecentSprint = input.sprint || this.sprintReleaseGrace > 0;
-    const warmupOk = this.sprintWarmupTime >= t.slideEnterMinSprintTime || this.sprintReleaseGrace > 0;
+    // Ground slide: always available when moving fast enough (no sprint required)
     const horSpeed = Math.hypot(this.velocity.x, this.velocity.z);
     const slideEnterCooldownOk = this.slideEnterCooldownTimer <= 0;
     const canGroundSlide =
       input.slideIntentTicks > 0 &&
-      hadRecentSprint &&
-      warmupOk &&
       slideEnterCooldownOk &&
       horSpeed >= t.slideEnterSpeed;
     if (canGroundSlide) {
@@ -201,18 +186,10 @@ export class FPSMovementController {
       return;
     }
 
-    // Sprint takes precedence so "Sprint: true" always means higher velocity. Else crouch or walk.
-    const speed = input.sprint
-      ? t.maxSpeedSprint
-      : input.slide
-        ? t.maxSpeedCrouch
-        : t.maxSpeedWalk;
+    const speed = input.slide ? t.maxSpeedCrouch : t.maxSpeedWalk;
     const cos = Math.cos(this.yaw);
     const sin = Math.sin(this.yaw);
-    // Sprint: lower accel factor = ramp-up (not instant); walk uses full accel
-    const accel = input.sprint
-      ? t.accel * (t.maxSpeedSprint / t.maxSpeedWalk) * t.sprintAccelFactor
-      : t.accel;
+    const accel = t.accel;
     const ax = (input.moveX * cos - input.moveZ * sin) * accel * dt;
     const az = (-input.moveX * sin - input.moveZ * cos) * accel * dt;
     this.velocity.x += ax;
@@ -230,7 +207,6 @@ export class FPSMovementController {
       this.horSpeedWhenJumped = Math.hypot(this.velocity.x, this.velocity.z);
       this.state = "airborne";
       this.jumpBufferTimer = 0;
-      this.sprintWarmupTime = 0;
     } else {
       this.velocity.y -= t.gravity * dt;
       this.velocity.y = Math.max(this.velocity.y, -t.maxFallSpeed);

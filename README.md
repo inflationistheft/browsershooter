@@ -23,7 +23,7 @@ npm run build -w shared   # build shared before client/editor
 - `npm run dev:server` – nur Server (Colyseus, Port 2567)
 - `npm run editor` – Map-Editor (Port 3001)
 
-Nach Start: Browser **http://localhost:3000** öffnen, auf die Szene klicken (Pointer Lock), WASD + Maus. **Sprint:** Shift, **Slide:** Strg (im Lauf), **Slide-Jump:** im Slide Space.
+Nach Start: Browser **http://localhost:3000** öffnen, auf die Szene klicken (Pointer Lock), WASD + Maus. **Slide:** Shift/Strg/C (bei genug Geschwindigkeit), **Slide-Jump:** im Slide Space.
 
 **Eigene GLB-Modelle:** GLBs in `client/public/models/` legen und per `.env` oder Config nutzen: `VITE_PLAYER_MODEL_URL=/models/player.glb`, `VITE_DUMMY_MODEL_URL=/models/dummy.glb`. Leer = Platzhalter-Boxen.
 

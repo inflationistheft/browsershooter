@@ -35,8 +35,8 @@ export const defaultInputState: InputState = {
   debugModeJustPressed: false,
 };
 
-/** Key codes to lock when pointer lock is active: browser shortcuts + crouch/slide so C/Ctrl work reliably. */
-const LOCK_KEYS_FOR_BROWSER_SHORTCUTS = ["KeyW", "KeyN", "KeyT", "KeyC", "ControlLeft", "ControlRight"];
+/** Key codes to lock when pointer lock is active: browser shortcuts + crouch/slide so Shift/Ctrl/C work reliably. */
+const LOCK_KEYS_FOR_BROWSER_SHORTCUTS = ["KeyW", "KeyN", "KeyT", "KeyC", "ShiftLeft", "ShiftRight", "ControlLeft", "ControlRight"];
 
 /** Block Ctrl+W / Ctrl+N / Ctrl+T in capture phase so tab doesn't close when pointer locked. */
 function installCaptureShortcutBlocker(_getPointerLocked: () => boolean): void {
@@ -70,9 +70,13 @@ export class InputSampler {
    * Do not mutate or store – consume synchronously and discard. For async/copy use cases, clone first.
    */
   getState(): Readonly<InputState> {
-    this.state.sprint =
-      this.keysDown.has("ShiftLeft") || this.keysDown.has("ShiftRight") || this.keysDown.has("ArrowUp");
-    const slideNow = this.keysDown.has("ControlLeft") || this.keysDown.has("ControlRight") || this.keysDown.has("KeyC");
+    this.state.sprint = false; // Unused (kept for schema compat)
+    const slideNow =
+      this.keysDown.has("ShiftLeft") ||
+      this.keysDown.has("ShiftRight") ||
+      this.keysDown.has("ControlLeft") ||
+      this.keysDown.has("ControlRight") ||
+      this.keysDown.has("KeyC");
     this.state.slideJustPressed = slideNow && !this.slideWasDown;
     this.slideWasDown = slideNow;
     this.state.slide = slideNow;
@@ -144,7 +148,13 @@ export class InputSampler {
   }
 
   private isSlideKey(code: string): boolean {
-    return code === "ControlLeft" || code === "ControlRight" || code === "KeyC";
+    return (
+      code === "ShiftLeft" ||
+      code === "ShiftRight" ||
+      code === "ControlLeft" ||
+      code === "ControlRight" ||
+      code === "KeyC"
+    );
   }
 
   private onKey(code: string, down: boolean, e?: KeyboardEvent): void {

@@ -22,8 +22,8 @@ export class DummyMovementController {
   grounded = true;
 
   update(dt: number, input: Readonly<InputState>, _physics: { raycast?: () => boolean }): void {
-    const { accel, maxSpeedSprint, maxSpeedWalk, friction, gravity, jumpForce } = movementTuning;
-    const speed = input.sprint ? maxSpeedSprint : maxSpeedWalk;
+    const { accel, maxSpeedWalk, friction, gravity, jumpForce } = movementTuning;
+    const speed = maxSpeedWalk;
 
     const moveX = input.moveX * accel * dt;
     const moveZ = input.moveZ * accel * dt;

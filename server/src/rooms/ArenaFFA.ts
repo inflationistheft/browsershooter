@@ -276,22 +276,10 @@ export class ArenaFFARoom extends Room<ArenaState> {
             }
           }
         } else if (grounded) {
-          if (lastInput.sprint) {
-            ext._sprintWarmupTime = (ext._sprintWarmupTime ?? 0) + dtSec;
-            ext._sprintReleaseGrace = t.slideSprintReleaseGrace;
-          } else {
-            ext._sprintWarmupTime = 0;
-            ext._sprintReleaseGrace = Math.max(0, (ext._sprintReleaseGrace ?? 0) - dtSec);
-          }
-          const hadRecentSprint = (lastInput.sprint ?? false) || (ext._sprintReleaseGrace ?? 0) > 0;
-          const warmupOk =
-            (ext._sprintWarmupTime ?? 0) >= t.slideEnterMinSprintTime || (ext._sprintReleaseGrace ?? 0) > 0;
           const horSpeed = Math.hypot(player.vx, player.vz);
           const slideEnterCooldownOk = (ext._slideEnterCooldownTimer ?? 0) <= 0;
           const canGroundSlide =
             (lastInput.slide ?? false) &&
-            hadRecentSprint &&
-            warmupOk &&
             slideEnterCooldownOk &&
             horSpeed >= t.slideEnterSpeed;
           if (canGroundSlide) {
@@ -305,14 +293,8 @@ export class ArenaFFARoom extends Room<ArenaState> {
             }
           } else {
             const crouching = lastInput.slide ?? false;
-            const speed = crouching
-              ? t.maxSpeedCrouch
-              : lastInput.sprint
-                ? t.maxSpeedSprint
-                : t.maxSpeedWalk;
-            const accel = lastInput.sprint
-              ? t.accel * (t.maxSpeedSprint / t.maxSpeedWalk) * t.sprintAccelFactor
-              : t.accel;
+            const speed = crouching ? t.maxSpeedCrouch : t.maxSpeedWalk;
+            const accel = t.accel;
           const cos = Math.cos(player.yaw);
           const sin = Math.sin(player.yaw);
           const ax = ((lastInput.moveX ?? 0) * cos - (lastInput.moveZ ?? 0) * sin) * accel * dtSec;

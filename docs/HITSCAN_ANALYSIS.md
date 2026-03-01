@@ -3,7 +3,7 @@
 ## Aktuelle Architektur (nach Refactoring)
 
 ### Hitbox-Layout (Server)
-- **Head**: Sphäre bei `y + HEAD_HITBOX_HEIGHT` (1.55m), Radius `HEAD_HITBOX_RADIUS` (0.18m)
+- **Head**: Sphäre bei `y + HEAD_HITBOX_HEIGHT` (1.6m), Radius `HEAD_HITBOX_RADIUS` (0.13m)
 - **Body**: Capsule von `y + BODY_CAPSULE_BOTTOM` (0.2m) bis `y + BODY_CAPSULE_TOP` (1.1m), Radius `BODY_CAPSULE_RADIUS` (0.35m)
 - **Priorität**: Zuerst Head testen, dann Body (damit Body keine Head-Treffer „wegfängt“)
 
