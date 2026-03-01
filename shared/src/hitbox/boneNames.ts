@@ -36,3 +36,13 @@ export const BONE_LEFT_FOOT_ALT2 = "LeftFoot";
 export const BONE_RIGHT_FOOT = "mixamorig:RightFoot";
 export const BONE_RIGHT_FOOT_ALT = "mixamorigRightFoot";
 export const BONE_RIGHT_FOOT_ALT2 = "RightFoot";
+
+/** Right hand – viewmodel weapon anchor (grip point). */
+export const BONE_RIGHT_HAND = "mixamorig:RightHand";
+export const BONE_RIGHT_HAND_ALT = "mixamorigRightHand";
+export const BONE_RIGHT_HAND_ALT2 = "RightHand";
+
+/** Left hand – viewmodel weapon second anchor (gripleft). */
+export const BONE_LEFT_HAND = "mixamorig:LeftHand";
+export const BONE_LEFT_HAND_ALT = "mixamorigLeftHand";
+export const BONE_LEFT_HAND_ALT2 = "LeftHand";

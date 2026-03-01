@@ -163,9 +163,10 @@ export class DebugHitboxVisualization {
     }
   }
 
-  setVisible(visible: boolean): void {
+  /** hideLocalInFps: when true (e.g. arms-only POV), hide local hitbox to avoid cyan-green overlap on weapon. */
+  setVisible(visible: boolean, hideLocalInFps = false): void {
     this.visible = visible;
-    this.localGroup.visible = visible;
+    this.localGroup.visible = visible && !hideLocalInFps;
     this.aimRayGroup.visible = false;
     this.remoteGroups.forEach((g) => (g.visible = false));
   }

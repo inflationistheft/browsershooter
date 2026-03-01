@@ -53,6 +53,64 @@ export async function loadPlayerModelWithAnimations(
   }
 }
 
+/** Load viewmodel arms (FPS POV). Returns scene + animations. Use placeholder if url empty or load fails. */
+export async function loadViewmodelWithAnimations(
+  url: string
+): Promise<ModelLoadResult> {
+  if (!url.trim()) {
+    if (import.meta.env?.DEV) console.warn("[Viewmodel] No viewmodelArmsUrl configured");
+    return { scene: createPlaceholderMesh(), animations: [] };
+  }
+  try {
+    const gltf = await gltfLoader.loadAsync(url);
+    const anims = gltf.animations ?? [];
+    if (import.meta.env?.DEV) {
+      console.info(
+        "[Viewmodel] Loaded",
+        url,
+        "| meshes:",
+        countMeshes(gltf.scene),
+        "| animations:",
+        anims.length
+      );
+    }
+    return {
+      scene: gltf.scene,
+      animations: anims,
+    };
+  } catch (err) {
+    if (import.meta.env?.DEV) {
+      console.error("[Viewmodel] Failed to load", url, err);
+    }
+    return { scene: createPlaceholderMesh(), animations: [] };
+  }
+}
+
+function countMeshes(obj: THREE.Object3D): number {
+  let n = 0;
+  obj.traverse((o) => {
+    if ((o as THREE.Mesh).isMesh) n++;
+  });
+  return n;
+}
+
+/** Load viewmodel weapon GLB. Returns scene or null if empty URL or load fails. */
+export async function loadViewmodelWeapon(url: string): Promise<THREE.Object3D | null> {
+  if (!url.trim()) return null;
+  try {
+    const gltf = await gltfLoader.loadAsync(url);
+    if (import.meta.env?.DEV) {
+      console.info("[Viewmodel] Loaded weapon", url, "| meshes:", countMeshes(gltf.scene));
+    }
+    return gltf.scene;
+  } catch (err) {
+    if (import.meta.env?.DEV) {
+      console.warn("[Viewmodel] Failed to load weapon", url, err);
+    }
+    return null;
+  }
+}
+
 export interface DummyLoadResult {
   scene: THREE.Object3D;
   animations: THREE.AnimationClip[];
@@ -110,7 +168,7 @@ export function applySkinToModel(model: THREE.Object3D, skinTexture: THREE.Textu
     const cloned: THREE.Material[] = [];
     for (const mat of materials) {
       const m = mat as THREE.MeshStandardMaterial;
-      if (!m?.map) continue;
+      if (!m) continue;
       const clone = m.clone();
       clone.map = skinTexture;
       cloned.push(clone);

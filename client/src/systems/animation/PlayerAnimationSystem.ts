@@ -147,6 +147,29 @@ export class PlayerAnimationSystem {
   private static readonly STRAFE_SLOW_SCALE = 0.7;
 
   /**
+   * Play idle pose and freeze at frame 0 (no animation). Use for POV viewmodel.
+   * After first call, same action is already playing – effectively a no-op.
+   */
+  playStaticIdlePose(mixer: THREE.AnimationMixer): void {
+    const clip = this.findClip("idle");
+    if (!clip) return;
+
+    const prevAction = this.currentActions.get(mixer);
+    const nextAction = mixer.clipAction(clip);
+    const clipChanged = prevAction !== nextAction;
+
+    if (clipChanged) {
+      if (prevAction) prevAction.fadeOut(0.06);
+      nextAction.setLoop(THREE.LoopRepeat, Infinity);
+      nextAction.reset().fadeIn(0).play();
+      this.currentActions.set(mixer, nextAction);
+    }
+
+    nextAction.time = 0;
+    nextAction.timeScale = 0;
+  }
+
+  /**
    * Play clip on mixer with crossfade. Falls back to idle if clip not found (never T-Pose).
    * Only transitions when clip changes – avoid reset() every frame (caused T-Pose flash).
    * Context: vy for jump sync; sprint or timeScale for strafe speed (strafe without sprint = 30% slower).
@@ -197,6 +220,8 @@ export class PlayerAnimationSystem {
       } else {
         nextAction.timeScale = 1;
       }
+    } else if (effectiveClipId === "idle") {
+      nextAction.timeScale = 1;
     }
   }
 

@@ -7,7 +7,16 @@ export function createHUD(container: HTMLElement): void {
   crosshair.id = "crosshair";
   crosshair.style.cssText = `
     position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%);
-    width: 4px; height: 4px; background: #0f0; border-radius: 2px; pointer-events: none;
+    width: 24px; height: 24px; pointer-events: none;
+  `;
+  crosshair.innerHTML = `
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <line x1="12" y1="6" x2="12" y2="3" stroke="#8f8" stroke-width="1"/>
+      <line x1="12" y1="21" x2="12" y2="18" stroke="#8f8" stroke-width="1"/>
+      <line x1="6" y1="12" x2="3" y2="12" stroke="#8f8" stroke-width="1"/>
+      <line x1="21" y1="12" x2="18" y2="12" stroke="#8f8" stroke-width="1"/>
+      <circle cx="12" cy="12" r="1" fill="#8f8"/>
+    </svg>
   `;
   container.appendChild(crosshair);
 
@@ -16,7 +25,7 @@ export function createHUD(container: HTMLElement): void {
   info.style.cssText = `
     position: fixed; bottom: 16px; left: 16px; color: #ccc; font-family: monospace; font-size: 14px;
   `;
-  info.textContent = "HP: 100 | Ammo: 30/30";
+  info.textContent = "Shield: 100 | HP: 50 | Ammo: 30/30";
   container.appendChild(info);
 
   const respawnOverlay = document.createElement("div");
@@ -43,6 +52,7 @@ export function createHUD(container: HTMLElement): void {
 }
 
 export function updateHUD(
+  shield: number,
   hp: number,
   ammo: number,
   maxAmmo: number,
@@ -50,7 +60,7 @@ export function updateHUD(
 ): void {
   const el = document.getElementById("hud-info");
   const ammoStr = debugMode ? "∞" : `${ammo}/${maxAmmo}`;
-  if (el) el.textContent = `HP: ${hp} | Ammo: ${ammoStr}`;
+  if (el) el.textContent = `Shield: ${shield} | HP: ${hp} | Ammo: ${ammoStr}`;
 
   const overlay = document.getElementById("respawn-overlay");
   const countdownEl = document.getElementById("respawn-countdown");

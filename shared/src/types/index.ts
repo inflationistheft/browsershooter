@@ -14,6 +14,8 @@ export interface PlayerState {
   rotation: Vec3; // yaw, pitch, roll (degrees or rad as agreed)
   velocity: Vec3;
   movementState: MovementState;
+  shield: number;
+  maxShield: number;
   health: number;
   maxHealth: number;
   currentWeapon: string;

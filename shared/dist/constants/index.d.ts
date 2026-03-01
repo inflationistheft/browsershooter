@@ -12,6 +12,10 @@ export declare const PLAYER_EYE_HEIGHT = 1.6;
 /** Eye height when crouching (camera lower). */
 export declare const CROUCH_EYE_HEIGHT = 1;
 export declare const DEFAULT_MAX_HEALTH = 150;
+/** Halo-like shield/health: max shield points. */
+export declare const MAX_SHIELD = 100;
+/** Halo-like shield/health: max health points (after shield). */
+export declare const MAX_HEALTH = 50;
 /** Hitscan: sphere center height above feet (meters). @deprecated Use HEAD/BODY hitbox constants. */
 export declare const PLAYER_HITBOX_CENTER_HEIGHT = 0.9;
 /** Hitscan: target sphere radius (meters). @deprecated Use HEAD_HITBOX_RADIUS / BODY_CAPSULE_RADIUS. */
@@ -36,10 +40,26 @@ export declare const BODY_CAPSULE_RADIUS = 0.24;
 export declare const BODY_CAPSULE_TOP_EXTEND = 0.02;
 /** Hitscan: max range in meters. */
 export declare const HITSCAN_RANGE = 200;
-/** Damage per hit. */
+/** Damage per hit. @deprecated Use HITSCAN_BODY_DAMAGE. */
 export declare const HITSCAN_DAMAGE = 13;
+/** Single-shot: body damage per hit. */
+export declare const HITSCAN_BODY_DAMAGE = 22;
+/** Headshot multiplier when shield == 0. No bonus when shield > 0. */
+export declare const HITSCAN_HEAD_MULTIPLIER = 1.8;
+/** Fire rate (shots/sec). Single-shot semi-auto. */
+export declare const FIRE_RATE = 3.3;
+/** Ticks between shots at FIRE_RATE. */
+export declare const SHOT_INTERVAL_TICKS: number;
 /** Reload duration in ticks (30 Hz). ~1.5 s. */
 export declare const RELOAD_TICKS = 45;
+/** Shield/health regen: delay after last damage (seconds) before regen starts. */
+export declare const REGEN_DELAY_SEC = 2.25;
+/** Shield/health regen: delay in ticks. */
+export declare const REGEN_DELAY_TICKS: number;
+/** Shield regeneration rate (points per second). */
+export declare const SHIELD_REGEN_PER_SEC = 55;
+/** Health regeneration rate (points per second). Only when shield is full. */
+export declare const HEALTH_REGEN_PER_SEC = 30;
 /** How long the health bar above a hit player stays visible (ms). ~1.25s */
 export declare const HEALTH_BAR_VISIBILITY_MS = 1250;
 /** Respawn delay after death (seconds). */

@@ -2,10 +2,14 @@
  * FFA Arena room: tick loop, state sync, placeholder movement.
  */
 import { Room } from "@colyseus/core";
-import { movementTuning, resolveArenaWalls, applyWallVelocitySlide, rayArenaIntersection, resolveAnimationClipId, TICK_RATE, PLAYER_RADIUS, PLAYER_EYE_HEIGHT, CROUCH_EYE_HEIGHT, HITSCAN_RANGE, HITSCAN_DAMAGE, RELOAD_TICKS, DEFAULT_MAX_HEALTH, RESPAWN_DELAY_SEC, HEAD_HITBOX_HEIGHT, HEAD_HITBOX_RADIUS, BODY_CAPSULE_TOP, BODY_CAPSULE_RADIUS, BODY_CAPSULE_TOP_EXTEND, raySphereIntersection, rayCapsuleIntersection, DEBUG_HEAD_ONLY, } from "shared";
+import { movementTuning, resolveArenaWalls, applyWallVelocitySlide, rayArenaIntersection, resolveAnimationClipId, TICK_RATE, PLAYER_RADIUS, PLAYER_EYE_HEIGHT, CROUCH_EYE_HEIGHT, HITSCAN_RANGE, HITSCAN_BODY_DAMAGE, HITSCAN_HEAD_MULTIPLIER, SHOT_INTERVAL_TICKS, RELOAD_TICKS, REGEN_DELAY_TICKS, SHIELD_REGEN_PER_SEC, HEALTH_REGEN_PER_SEC, MAX_SHIELD, MAX_HEALTH, RESPAWN_DELAY_SEC, HEAD_HITBOX_HEIGHT, HEAD_HITBOX_RADIUS, BODY_CAPSULE_TOP, BODY_CAPSULE_RADIUS, BODY_CAPSULE_TOP_EXTEND, raySphereIntersection, rayCapsuleIntersection, DEBUG_HEAD_ONLY, } from "shared";
 import { ArenaState, PlayerStateSchema } from "shared";
 import { serverConfig } from "../config/index.js";
 export class ArenaFFARoom extends Room {
+    constructor() {
+        super(...arguments);
+        this._tickCount = 0;
+    }
     onCreate() {
         this.setState(new ArenaState());
         this.setSimulationInterval((dt) => this.tick(dt), serverConfig.tickMs);
@@ -35,8 +39,10 @@ export class ArenaFFARoom extends Room {
         state.x = sx;
         state.y = sy;
         state.z = sz;
-        state.health = DEFAULT_MAX_HEALTH;
-        state.maxHealth = DEFAULT_MAX_HEALTH;
+        state.shield = MAX_SHIELD;
+        state.maxShield = MAX_SHIELD;
+        state.health = MAX_HEALTH;
+        state.maxHealth = MAX_HEALTH;
         state.ammo = 30;
         state.maxAmmo = 30;
         this.state.players.set(client.sessionId, state);
@@ -57,6 +63,7 @@ export class ArenaFFARoom extends Room {
             ext._pendingShoot = true;
     }
     tick(_dt) {
+        this._tickCount++;
         const t = movementTuning;
         const dtSec = serverConfig.tickMs / 1000;
         const GROUND_Y = 0;
@@ -72,6 +79,7 @@ export class ArenaFFARoom extends Room {
                 if (ext._respawnTicks <= 0) {
                     const idx = Math.floor(Math.random() * ArenaFFARoom.SPAWN_OFFSETS.length);
                     const [sx, sy, sz] = ArenaFFARoom.SPAWN_OFFSETS[idx];
+                    player.shield = player.maxShield;
                     player.health = player.maxHealth;
                     player.x = sx;
                     player.y = sy;
@@ -98,6 +106,9 @@ export class ArenaFFARoom extends Room {
             if (ext._slideEnterCooldownTimer !== undefined && ext._slideEnterCooldownTimer > 0) {
                 ext._slideEnterCooldownTimer -= dtSec;
             }
+            if (ext._shootCooldownTicks !== undefined && ext._shootCooldownTicks > 0) {
+                ext._shootCooldownTicks--;
+            }
             if (ext._reloadTicks !== undefined && ext._reloadTicks > 0) {
                 ext._reloadTicks--;
                 if (ext._reloadTicks === 0) {
@@ -106,6 +117,18 @@ export class ArenaFFARoom extends Room {
             }
             else if (lastInput?.reload && player.ammo < player.maxAmmo) {
                 ext._reloadTicks = RELOAD_TICKS;
+            }
+            if (player.shield < player.maxShield ||
+                player.health < player.maxHealth) {
+                const lastDamageTick = ext._lastDamageTick ?? 0;
+                if (this._tickCount - lastDamageTick >= REGEN_DELAY_TICKS) {
+                    if (player.shield < player.maxShield) {
+                        player.shield = Math.min(player.maxShield, player.shield + SHIELD_REGEN_PER_SEC * dtSec);
+                    }
+                    else if (player.health < player.maxHealth) {
+                        player.health = Math.min(player.maxHealth, player.health + HEALTH_REGEN_PER_SEC * dtSec);
+                    }
+                }
             }
             if (lastInput) {
                 if (lastInput.yaw !== undefined)
@@ -298,23 +321,38 @@ export class ArenaFFARoom extends Room {
             const infiniteAmmo = (lastInput?.debugMode ?? false) ||
                 process.env.DEBUG_INFINITE_AMMO === "1" ||
                 process.env.DEBUG_HITSCAN === "1";
+            const shootCooldownOk = ext._shootCooldownTicks === undefined || ext._shootCooldownTicks <= 0;
             if (shouldShoot &&
                 (player.ammo > 0 || infiniteAmmo) &&
-                (ext._reloadTicks === undefined || ext._reloadTicks <= 0)) {
+                (ext._reloadTicks === undefined || ext._reloadTicks <= 0) &&
+                shootCooldownOk) {
                 if (!infiniteAmmo)
                     player.ammo--;
                 ext._pendingShoot = false;
+                ext._shootCooldownTicks = SHOT_INTERVAL_TICKS;
                 const crouching = player.movementState === "grounded" && (lastInput?.slide ?? false);
                 const hitResult = this.hitscanRaycast(shooterId, player, crouching, lastInput);
                 if (hitResult) {
                     const target = this.state.players.get(hitResult.targetId);
                     if (target) {
-                        target.health = Math.max(0, target.health - HITSCAN_DAMAGE);
+                        const headDamage = target.shield > 0
+                            ? HITSCAN_BODY_DAMAGE
+                            : Math.round(HITSCAN_BODY_DAMAGE * HITSCAN_HEAD_MULTIPLIER);
+                        const baseDamage = hitResult.hitboxType === "head" ? headDamage : HITSCAN_BODY_DAMAGE;
+                        if (target.shield > 0) {
+                            target.shield = Math.max(0, target.shield - baseDamage);
+                        }
+                        else {
+                            target.health = Math.max(0, target.health - baseDamage);
+                        }
+                        target._lastDamageTick =
+                            this._tickCount;
+                        const actualDamage = baseDamage;
                         const shooterClient = Array.from(this.clients).find((c) => c.sessionId === shooterId);
                         if (shooterClient) {
                             shooterClient.send("hit", {
                                 targetId: hitResult.targetId,
-                                damage: HITSCAN_DAMAGE,
+                                damage: actualDamage,
                                 hitboxType: hitResult.hitboxType,
                             });
                         }
@@ -328,7 +366,7 @@ export class ArenaFFARoom extends Room {
                                 dirX: dirX / len,
                                 dirY: dirY / len,
                                 dirZ: dirZ / len,
-                                damage: HITSCAN_DAMAGE,
+                                damage: actualDamage,
                             });
                         }
                         if (process.env.DEBUG_HITSCAN) {

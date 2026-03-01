@@ -17,6 +17,8 @@ export declare class PlayerStateSchema extends Schema {
     animationState: string;
     /** Playback scale for strafe clips (0.7 when not sprinting, 1 when sprinting). */
     animationTimeScale: number;
+    shield: number;
+    maxShield: number;
     health: number;
     maxHealth: number;
     currentWeapon: string;

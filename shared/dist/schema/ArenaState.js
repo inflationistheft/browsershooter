@@ -28,8 +28,10 @@ export class PlayerStateSchema extends Schema {
         this.animationState = "idle";
         /** Playback scale for strafe clips (0.7 when not sprinting, 1 when sprinting). */
         this.animationTimeScale = 1;
-        this.health = 150;
-        this.maxHealth = 150;
+        this.shield = 100;
+        this.maxShield = 100;
+        this.health = 50;
+        this.maxHealth = 50;
         this.currentWeapon = "rifle";
         this.ammo = 30;
         this.maxAmmo = 30;
@@ -83,6 +85,14 @@ __decorate([
     type("number"),
     __metadata("design:type", Object)
 ], PlayerStateSchema.prototype, "animationTimeScale", void 0);
+__decorate([
+    type("number"),
+    __metadata("design:type", Object)
+], PlayerStateSchema.prototype, "shield", void 0);
+__decorate([
+    type("number"),
+    __metadata("design:type", Object)
+], PlayerStateSchema.prototype, "maxShield", void 0);
 __decorate([
     type("number"),
     __metadata("design:type", Object)

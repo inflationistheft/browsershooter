@@ -39,17 +39,29 @@ import {
   getHitboxPositionsFromModel,
   type HitboxPositions,
 } from "./systems/animation/getHitboxPositions.js";
-import { resolveAnimationClipId } from "shared";
 import type { ArenaState, PlayerStateSchema } from "shared";
 import {
   loadPlayerModelWithAnimations,
+  loadViewmodelWithAnimations,
+  loadViewmodelWeapon,
   loadSkinTexture,
   applySkinToModel,
   setModelSkin,
   createPlaceholderMesh,
 } from "./systems/assetLoader/AssetLoader.js";
 import { PlayerAnimationSystem } from "./systems/animation/PlayerAnimationSystem.js";
-import { PLAYER_EYE_HEIGHT, CROUCH_EYE_HEIGHT, DEFAULT_MAX_HEALTH } from "shared";
+import {
+  PLAYER_EYE_HEIGHT,
+  CROUCH_EYE_HEIGHT,
+  MAX_SHIELD,
+  MAX_HEALTH,
+  BONE_RIGHT_HAND,
+  BONE_RIGHT_HAND_ALT,
+  BONE_RIGHT_HAND_ALT2,
+  BONE_LEFT_HAND,
+  BONE_LEFT_HAND_ALT,
+  BONE_LEFT_HAND_ALT2,
+} from "shared";
 
 const app = document.getElementById("app");
 if (!app) throw new Error("No #app");
@@ -57,6 +69,11 @@ if (!app) throw new Error("No #app");
 const canvas = document.createElement("canvas");
 app.appendChild(canvas);
 
+const isTunerMode = new URLSearchParams(window.location.search).get("tuner") === "1";
+if (isTunerMode) {
+  void import("./tuner/TunerBoot.js").then((m) => m.bootTuner(app, canvas));
+} else {
+  // --- Game mode ---
 function getCanvasSize(): { w: number; h: number } {
   const w = canvas.clientWidth || window.innerWidth;
   const h = canvas.clientHeight || window.innerHeight;
@@ -65,7 +82,8 @@ function getCanvasSize(): { w: number; h: number } {
 
 const { w: initW, h: initH } = getCanvasSize();
 const sceneManager = new SceneManager(canvas);
-const cameraSystem = new FPSCamera(75, initW / initH || 16 / 9, 0.1, 1000);
+const cameraSystem = new FPSCamera(90, initW / initH || 16 / 9, 0.1, 1000);
+sceneManager.getScene().add(cameraSystem.getCamera());
 sceneManager.resize(initW, initH);
 cameraSystem.resize(initW, initH);
 const input = new InputSampler();
@@ -111,8 +129,31 @@ let inputTick = 0;
 let currentEyeHeight = PLAYER_EYE_HEIGHT;
 const CROUCH_TRANSITION_TAU = 0.04; // ~120ms to 95%
 
-// Player model (FPS): attached to camera
+// Player model (FPS): follows camera in world space
 let playerViewModel: THREE.Object3D | null = null;
+let viewmodelHolder: THREE.Group | null = null;
+let viewmodelIsArmsOnly = false;
+/** Weapon container (child of viewmodel root) – two-point anchored each frame. */
+let weaponContainerRef: THREE.Group | null = null;
+const _vec3A = new THREE.Vector3();
+const _vec3B = new THREE.Vector3();
+const _vec3C = new THREE.Vector3();
+const _quat = new THREE.Quaternion();
+const _quatB = new THREE.Quaternion();
+
+/** Refs for two-point solve: RightHand, LeftHand, gripleft node. */
+let twoPointRefs: {
+  rightHand: THREE.Bone;
+  leftHand: THREE.Bone;
+  gripleft: THREE.Object3D;
+  gLeftLocal: THREE.Vector3;
+} | null = null;
+/** True when POV weapon is decoupled from arms (attached to viewmodel root). */
+let weaponPovDecoupled = false;
+
+/** POV offsets (x, y, z, rotX, rotY, rotZ, scale). Same for all states; per-animation can be added later. */
+const POV_DEFAULT = { x: 0.37, y: -5.34, z: 0.55, rotX: -0.03, rotY: 2.968, rotZ: -0.02, scale: 3.21 };
+
 /** Mixer for local FPS view model (when player.glb has animations). */
 let localPlayerMixer: THREE.AnimationMixer | null = null;
 /** Template for cloning all players (local + remote). From player.glb. */
@@ -141,29 +182,201 @@ async function initAssets(): Promise<void> {
   playerTemplate = playerResult.scene;
   const playerAnimations = playerResult.animations;
 
-  const playerModel = cloneSkeleton(playerTemplate);
-  playerModel.updateMatrixWorld(true);
-  playerViewModel = playerModel;
+  let viewmodelSource: THREE.Object3D = playerTemplate;
+  let viewmodelAnimations = playerAnimations;
 
-  // Load and apply player skin (PNG from /models/skins/{id}.png)
-  if (clientConfig.playerSkin) {
-    const playerSkinTex = await loadSkinTexture(clientConfig.playerSkin);
-    if (playerSkinTex) applySkinToModel(playerModel, playerSkinTex);
+  if (clientConfig.viewmodelArmsUrl) {
+    const povResult = await loadViewmodelWithAnimations(clientConfig.viewmodelArmsUrl);
+    if (import.meta.env?.DEV) {
+      console.info("[Viewmodel] POV load result:", {
+        url: clientConfig.viewmodelArmsUrl,
+        animCount: povResult.animations.length,
+        hasScene: !!povResult.scene,
+        usingPOV: povResult.animations.length > 0 && !!povResult.scene,
+      });
+    }
+    if (povResult.animations.length > 0 && povResult.scene) {
+      viewmodelSource = povResult.scene;
+      viewmodelAnimations = povResult.animations;
+    }
+    // #region agent log
+    fetch('http://127.0.0.1:7291/ingest/e6ca52ac-ce07-4922-9b3f-cd33fd3e1212',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'fc5eae'},body:JSON.stringify({sessionId:'fc5eae',location:'main.ts:POV-load',message:'POV load result',data:{povAnimCount:povResult.animations.length,hasPovScene:!!povResult.scene,usingPOV:povResult.animations.length>0&&!!povResult.scene,meshCount:povResult.scene?(()=>{let n=0;(povResult.scene as THREE.Object3D).traverse((o)=>{if((o as THREE.Mesh).isMesh)n++});return n})():0},hypothesisId:'H1',timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
   }
 
-  const cam = cameraSystem.getCamera();
-  cam.add(playerModel);
-  playerModel.position.set(0, -PLAYER_EYE_HEIGHT * 0.5, -0.4);
-  playerModel.rotation.set(0, 0, 0);
-  playerModel.scale.setScalar(1);
+  const isArmsOnly = viewmodelSource !== playerTemplate;
+  viewmodelIsArmsOnly = isArmsOnly;
+  const viewmodelModel = cloneSkeleton(viewmodelSource);
+  viewmodelModel.updateMatrixWorld(true);
+  playerViewModel = viewmodelModel;
+
+  if (clientConfig.playerSkin) {
+    const playerSkinTex = await loadSkinTexture(clientConfig.playerSkin);
+    if (playerSkinTex) applySkinToModel(viewmodelModel, playerSkinTex);
+  }
+  if (isArmsOnly) {
+    viewmodelModel.position.set(0, 0, 0);
+    viewmodelModel.rotation.set(0, 0, 0);
+    viewmodelModel.scale.setScalar(1);
+  } else {
+    viewmodelModel.position.set(0, -PLAYER_EYE_HEIGHT * 0.5, -0.4);
+    viewmodelModel.rotation.set(0, 0, 0);
+    viewmodelModel.scale.setScalar(1);
+  }
+
+  viewmodelHolder = new THREE.Group();
+  viewmodelHolder.add(viewmodelModel);
+  if (isArmsOnly) {
+    const cfg = POV_DEFAULT;
+    viewmodelHolder.position.set(cfg.x, cfg.y, cfg.z);
+    viewmodelHolder.rotation.set(cfg.rotX, cfg.rotY, cfg.rotZ);
+    viewmodelHolder.scale.setScalar(cfg.scale);
+  } else {
+    viewmodelHolder.position.set(0, 0, 0);
+    viewmodelHolder.quaternion.identity();
+    viewmodelHolder.scale.setScalar(1);
+  }
+  cameraSystem.getCamera().add(viewmodelHolder);
+  // #region agent log
+  (()=>{const meshCount=(()=>{let n=0;viewmodelModel.traverse((o)=>{if((o as THREE.Mesh).isMesh)n++});return n})();fetch('http://127.0.0.1:7291/ingest/e6ca52ac-ce07-4922-9b3f-cd33fd3e1212',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'fc5eae'},body:JSON.stringify({sessionId:'fc5eae',location:'main.ts:viewmodel-init',message:'Viewmodel setup',data:{isArmsOnly,meshCount,pos:viewmodelModel.position.toArray(),scale:viewmodelModel.scale.x,viewmodelVisible:viewmodelModel.visible,holderInScene:!!viewmodelHolder.parent},hypothesisId:'H2,H3',timestamp:Date.now()})}).catch(()=>{})})();
+  // #endregion
+  if (import.meta.env?.DEV) {
+    const meshNames: string[] = [];
+    viewmodelModel.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh) meshNames.push((o as THREE.Mesh).name || "(unnamed)");
+    });
+    console.info("[Viewmodel] Using", isArmsOnly ? "POV arms" : "player fallback", {
+      source: isArmsOnly ? clientConfig.viewmodelArmsUrl : clientConfig.playerModelUrl,
+      meshNames,
+      pos: viewmodelModel.position.toArray(),
+      scale: viewmodelModel.scale.x,
+    });
+  }
+  let meshCountH5 = 0;
+  viewmodelModel.traverse((obj) => {
+    obj.frustumCulled = false;
+    const mesh = obj as THREE.Mesh;
+    if (mesh.isMesh) {
+      mesh.renderOrder = 100;
+      meshCountH5++;
+      // depthTest stays true: proper occlusion between overlapping meshes (fingers, palm).
+      // Prevents z-fighting, dark splotches, visible triangles.
+    }
+  });
+  // #region agent log
+  (()=>{const infos:Record<string,unknown>[]=[];viewmodelModel.updateMatrixWorld(true);viewmodelModel.traverse((o)=>{const m=o as THREE.Mesh;if(m.isMesh){const w=new THREE.Vector3();m.getWorldPosition(w);const geo=m.geometry;const b=new THREE.Box3().setFromObject(m);infos.push({name:m.name,worldPos:w.toArray(),isSkinned:'isSkinnedMesh' in m&&!!(m as THREE.SkinnedMesh).isSkinnedMesh,boundsMin:b.min.toArray(),boundsMax:b.max.toArray(),vertCount:geo?.attributes?.position?.count??0})}});fetch('http://127.0.0.1:7291/ingest/e6ca52ac-ce07-4922-9b3f-cd33fd3e1212',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'fc5eae'},body:JSON.stringify({sessionId:'fc5eae',location:'main.ts:viewmodel-meshes',message:'Viewmodel mesh world pos',data:{meshCount:meshCountH5,meshes:infos},hypothesisId:'H7',timestamp:Date.now()})}).catch(()=>{})})();
+  // #endregion
+
+  if (isArmsOnly && clientConfig.viewmodelWeaponUrl) {
+    const weaponScene = await loadViewmodelWeapon(clientConfig.viewmodelWeaponUrl);
+    if (weaponScene) {
+      /** Model barrel points along +X; rotate +90° around X so it points forward. */
+      weaponScene.rotation.x = Math.PI / 2;
+      weaponScene.rotation.z = -Math.PI / 2;
+
+      let rightHandBone: THREE.Bone | null = null;
+      let leftHandBone: THREE.Bone | null = null;
+      viewmodelModel.traverse((obj) => {
+        const mesh = obj as THREE.SkinnedMesh;
+        if (mesh.isSkinnedMesh && mesh.skeleton && !rightHandBone) {
+          rightHandBone =
+            mesh.skeleton.getBoneByName(BONE_RIGHT_HAND) ??
+            mesh.skeleton.getBoneByName(BONE_RIGHT_HAND_ALT) ??
+            mesh.skeleton.getBoneByName(BONE_RIGHT_HAND_ALT2) ??
+            null;
+          leftHandBone =
+            mesh.skeleton.getBoneByName(BONE_LEFT_HAND) ??
+            mesh.skeleton.getBoneByName(BONE_LEFT_HAND_ALT) ??
+            mesh.skeleton.getBoneByName(BONE_LEFT_HAND_ALT2) ??
+            null;
+        }
+      });
+
+      const gripleftNode = weaponScene.getObjectByName("gripleft");
+      const weaponContainer = new THREE.Group();
+      weaponContainer.add(weaponScene);
+      weaponContainerRef = weaponContainer;
+
+      const baseScale = clientConfig.viewmodelWeaponScale ?? 1;
+      const useTwoPoint =
+        clientConfig.viewmodelWeaponTwoPoint &&
+        rightHandBone &&
+        leftHandBone &&
+        gripleftNode &&
+        gripleftNode.position.lengthSq() > 1e-6;
+      const usePovDecoupled = isArmsOnly;
+      if (usePovDecoupled) {
+        twoPointRefs = null;
+        weaponPovDecoupled = true;
+        cameraSystem.getCamera().add(weaponContainer);
+        const grip = clientConfig.viewmodelWeaponGripOffset ?? { x: 0, y: 0, z: 0 };
+        weaponScene.position.set(grip.x, grip.y, grip.z);
+        weaponScene.scale.setScalar(baseScale);
+        if (import.meta.env?.DEV) {
+          console.info("[Viewmodel] POV weapon decoupled (1:1 like tuner, camera child), scale:", baseScale);
+        }
+      } else if (useTwoPoint) {
+        const gLeftLocal = gripleftNode.position.clone();
+        twoPointRefs = {
+          rightHand: rightHandBone!,
+          leftHand: leftHandBone!,
+          gripleft: gripleftNode,
+          gLeftLocal,
+        };
+        weaponPovDecoupled = false;
+        viewmodelModel.add(weaponContainer);
+        if (import.meta.env?.DEV) {
+          console.info("[Viewmodel] Two-point anchoring: RightHand + LeftHand/gripleft");
+        }
+      } else {
+        twoPointRefs = null;
+        weaponPovDecoupled = false;
+        if (rightHandBone) {
+          (rightHandBone as THREE.Object3D).add(weaponContainer);
+          const off = clientConfig.viewmodelWeaponOffset;
+          weaponContainer.position.set(off.x, off.y, off.z);
+          const grip = clientConfig.viewmodelWeaponGripOffset ?? { x: 0, y: 0, z: 0 };
+          weaponScene.position.set(grip.x, grip.y, grip.z);
+          weaponScene.scale.setScalar(baseScale);
+          if (import.meta.env?.DEV) {
+            console.info("[Viewmodel] Single-point (RightHand), scale:", baseScale);
+          }
+        } else {
+          viewmodelModel.add(weaponContainer);
+          weaponContainer.position.set(0.25, -0.15, 0.35);
+          weaponScene.scale.setScalar(baseScale);
+          if (import.meta.env?.DEV) {
+            console.warn("[Viewmodel] No RightHand bone, weapon at root fallback");
+          }
+        }
+      }
+      weaponScene.traverse((obj) => {
+        obj.frustumCulled = false;
+        const m = obj as THREE.Mesh;
+        if (m.isMesh) {
+          m.renderOrder = 101;
+          const mats = Array.isArray(m.material) ? m.material : [m.material];
+          for (const mat of mats) {
+            if (mat) {
+              const mt = mat as THREE.Material;
+              // depthTest=true: proper occlusion, no z-fighting (same as arms)
+              if ("side" in mt) (mt as THREE.MeshStandardMaterial).side = THREE.DoubleSide;
+            }
+          }
+        }
+      });
+    } else if (import.meta.env?.DEV) {
+      console.warn("[Viewmodel] Weapon failed to load:", clientConfig.viewmodelWeaponUrl);
+    }
+  }
 
   setLoadingMessage("Loading characters and arena…", 40);
   playerAnimationSystem = new PlayerAnimationSystem(clientConfig.animationClipNames);
-  playerAnimationSystem.init(playerAnimations);
+  playerAnimationSystem.init(viewmodelAnimations);
 
-  if (playerAnimations.length > 0) {
-    localPlayerMixer = new THREE.AnimationMixer(playerModel);
-    playerAnimationSystem.playClip(localPlayerMixer, "idle");
+  if (viewmodelAnimations.length > 0) {
+    localPlayerMixer = new THREE.AnimationMixer(viewmodelModel);
+    playerAnimationSystem.playStaticIdlePose(localPlayerMixer);
   }
 
   if (playerTemplate) {
@@ -173,7 +386,7 @@ async function initAssets(): Promise<void> {
     hitboxDummy = dummy;
     if (playerAnimations.length > 0) {
       hitboxDummyMixer = new THREE.AnimationMixer(dummy);
-      playerAnimationSystem.playClip(hitboxDummyMixer, "idle");
+      playerAnimationSystem.playStaticIdlePose(hitboxDummyMixer);
     }
   }
 }
@@ -370,37 +583,93 @@ loop
         debugMode
       );
       netClient.sendInput(playerInput);
+      if (playerInput.shoot) {
+        input.consumeOneShoot();
+      }
       inputTick++;
       reconcileLocalWithServer(room);
     }
     input.tick();
   })
   .setRenderCallback((dt) => {
-    const state = input.getState();
     const snap = movement.getSnapshot();
-    const clipId = resolveAnimationClipId({
-      moveX: state.moveX,
-      moveZ: state.moveZ,
-      sprint: state.sprint,
-      crouching: snap.state === "sliding" || snap.crouching,
-      movementState: snap.state,
-    });
-    const animCtx: { vy?: number; sprint?: boolean } = {};
-    if (clipId === "jump") animCtx.vy = snap.velocity.y;
-    if (clipId === "strafeLeftFast" || clipId === "strafeRightFast") animCtx.sprint = state.sprint;
-    const animCtxArg = Object.keys(animCtx).length ? animCtx : undefined;
-
     if (localPlayerMixer) {
-      playerAnimationSystem.playClip(localPlayerMixer, clipId, animCtxArg);
+      playerAnimationSystem.playStaticIdlePose(localPlayerMixer);
     }
     cameraSystem.update(dt);
+    if (viewmodelHolder && viewmodelIsArmsOnly) {
+      const cfg = POV_DEFAULT;
+      viewmodelHolder.position.set(cfg.x, cfg.y, cfg.z);
+      viewmodelHolder.rotation.set(cfg.rotX, cfg.rotY, cfg.rotZ);
+      viewmodelHolder.scale.setScalar(cfg.scale);
+    }
     if (localPlayerMixer) localPlayerMixer.update(dt);
+    if (playerViewModel) playerViewModel.updateMatrixWorld(true);
+    if (viewmodelIsArmsOnly && weaponContainerRef && weaponPovDecoupled) {
+      const off = clientConfig.viewmodelWeaponOffset;
+      const povOff = clientConfig.viewmodelWeaponPovOffset ?? { x: 0, y: 0, z: 0 };
+      weaponContainerRef.position.set(
+        0.25 + off.x + povOff.x,
+        -0.4 + off.y + povOff.y,
+        -0.7 + off.z + povOff.z
+      );
+      weaponContainerRef.rotation.set(0, 0, 0);
+      const grip = clientConfig.viewmodelWeaponGripOffset ?? { x: 0, y: 0, z: 0 };
+      const rotX = clientConfig.viewmodelWeaponRotationX ?? 0;
+      const rotY = clientConfig.viewmodelWeaponRotationY ?? 0;
+      const rotZ = clientConfig.viewmodelWeaponRotationZ ?? 0;
+      const baseScale = clientConfig.viewmodelWeaponScale ?? 1;
+      const ws = weaponContainerRef.children[0];
+      if (ws) {
+        const w = ws as THREE.Object3D;
+        w.position.set(grip.x, grip.y, grip.z);
+        w.rotation.set(Math.PI / 2 + rotX, rotY, rotZ);
+        w.scale.setScalar(baseScale);
+      }
+    } else if (!twoPointRefs && weaponContainerRef) {
+      const off = clientConfig.viewmodelWeaponOffset;
+      weaponContainerRef.position.set(off.x, off.y, off.z);
+      const grip = clientConfig.viewmodelWeaponGripOffset ?? { x: 0, y: 0, z: 0 };
+      const rotX = clientConfig.viewmodelWeaponRotationX ?? 0;
+      const rotY = clientConfig.viewmodelWeaponRotationY ?? 0;
+      const rotZ = clientConfig.viewmodelWeaponRotationZ ?? 0;
+      const ws = weaponContainerRef.children[0];
+      if (ws) {
+        const w = ws as THREE.Object3D;
+        w.position.set(grip.x, grip.y, grip.z);
+        w.rotation.set(Math.PI / 2 + rotX, rotY, rotZ);
+      }
+    }
+    if (twoPointRefs && weaponContainerRef && playerViewModel) {
+      const { rightHand, leftHand, gLeftLocal } = twoPointRefs;
+      rightHand.getWorldPosition(_vec3A);
+      leftHand.getWorldPosition(_vec3B);
+      _vec3B.sub(_vec3A);
+      const lenD = _vec3B.length();
+      const lenG = gLeftLocal.length();
+      if (lenD > 1e-6 && lenG > 1e-6) {
+        const cfg = POV_DEFAULT;
+        // Geometric scale: grip span = hand distance. Account for viewmodel scale (weapon is child of viewmodel).
+        const vmScale = cfg.scale;
+        const geometricScale = lenD / (vmScale * lenG);
+        const scale = Math.max(0.5, Math.min(geometricScale, 50));
+        _vec3B.normalize();
+        _vec3C.copy(gLeftLocal).normalize();
+        _quat.setFromUnitVectors(_vec3C, _vec3B);
+        weaponContainerRef.position.copy(_vec3A);
+        playerViewModel.worldToLocal(weaponContainerRef.position);
+        playerViewModel.getWorldQuaternion(_quatB);
+        weaponContainerRef.quaternion.copy(_quatB).invert().multiply(_quat);
+        const weaponScene = weaponContainerRef.children[0];
+        if (weaponScene) (weaponScene as THREE.Object3D).scale.setScalar(scale);
+      }
+    }
     remotePlayerMixers.forEach((m) => m.update(dt));
     if (hitboxDummy) {
       hitboxDummy.position.set(snap.position.x, snap.position.y, snap.position.z);
       hitboxDummy.rotation.set(0, snap.yaw + Math.PI, 0);
       if (hitboxDummyMixer) {
-        playerAnimationSystem.playClip(hitboxDummyMixer, clipId, animCtxArg);
+        playerAnimationSystem.playStaticIdlePose(hitboxDummyMixer);
         hitboxDummyMixer.update(dt);
       }
       const positions = getHitboxPositionsFromModel(hitboxDummy);
@@ -438,7 +707,7 @@ loop
       lastHitboxPositions = null;
     }
     updateRemotePlayers(netClient.getRoom(), dt);
-    debugHitboxes.setVisible(debugMode);
+    debugHitboxes.setVisible(debugMode, viewmodelIsArmsOnly);
     const roomForDebug = netClient.getRoom();
     const localPos = debugMode ? movement.position : null;
     const remotePositions = roomForDebug
@@ -472,10 +741,11 @@ loop
     );
     const room = netClient.getRoom();
     const localPlayer = room ? room.state.players.get(room.sessionId) : null;
-    const hp = localPlayer?.health ?? DEFAULT_MAX_HEALTH;
+    const shield = (localPlayer as { shield?: number })?.shield ?? MAX_SHIELD;
+    const hp = localPlayer?.health ?? MAX_HEALTH;
     const ammo = localPlayer?.ammo ?? WEAPON_STUB.ammo;
     const maxAmmo = localPlayer?.maxAmmo ?? WEAPON_STUB.maxAmmo;
-    updateHUD(hp, ammo, maxAmmo, debugMode);
+    updateHUD(shield, hp, ammo, maxAmmo, debugMode);
     updateHitIndicators(snap.yaw, snap.pitch, dt, debugMode);
     if (clientConfig.debugOverlay) {
       const room = netClient.getRoom();
@@ -542,3 +812,4 @@ initAssets().then(async () => {
     };
   }
 });
+} // end else (game mode)

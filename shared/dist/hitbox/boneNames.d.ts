@@ -32,4 +32,12 @@ export declare const BONE_LEFT_FOOT_ALT2 = "LeftFoot";
 export declare const BONE_RIGHT_FOOT = "mixamorig:RightFoot";
 export declare const BONE_RIGHT_FOOT_ALT = "mixamorigRightFoot";
 export declare const BONE_RIGHT_FOOT_ALT2 = "RightFoot";
+/** Right hand – viewmodel weapon anchor (grip point). */
+export declare const BONE_RIGHT_HAND = "mixamorig:RightHand";
+export declare const BONE_RIGHT_HAND_ALT = "mixamorigRightHand";
+export declare const BONE_RIGHT_HAND_ALT2 = "RightHand";
+/** Left hand – viewmodel weapon second anchor (gripleft). */
+export declare const BONE_LEFT_HAND = "mixamorig:LeftHand";
+export declare const BONE_LEFT_HAND_ALT = "mixamorigLeftHand";
+export declare const BONE_LEFT_HAND_ALT2 = "LeftHand";
 //# sourceMappingURL=boneNames.d.ts.map
