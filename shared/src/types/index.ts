@@ -64,6 +64,13 @@ export interface PlayerInput {
   aimDirX?: number;
   aimDirY?: number;
   aimDirZ?: number;
+  /** Shot-tied data: aim + position at exact shoot moment. Server prefers these over generic aimDir/clientPos. */
+  shootAimX?: number;
+  shootAimY?: number;
+  shootAimZ?: number;
+  shootClientX?: number;
+  shootClientY?: number;
+  shootClientZ?: number;
   /** When true, server grants infinite ammo (client-side debug toggle via B). */
   debugMode?: boolean;
 }

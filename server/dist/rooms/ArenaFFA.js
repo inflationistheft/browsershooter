@@ -438,36 +438,63 @@ export class ArenaFFARoom extends Room {
     }
     hitscanRaycast(shooterId, shooter, crouching, lastInput) {
         const eyeHeight = crouching ? CROUCH_EYE_HEIGHT : PLAYER_EYE_HEIGHT;
-        const cx = lastInput?.clientX;
-        const cy = lastInput?.clientY;
-        const cz = lastInput?.clientZ;
+        // Prefer shot-tied position when shooting (exact frame data)
+        const scx = lastInput?.shootClientX;
+        const scy = lastInput?.shootClientY;
+        const scz = lastInput?.shootClientZ;
+        const hasShootPos = scx !== undefined && scy !== undefined && scz !== undefined;
+        const shootPosDelta = hasShootPos
+            ? Math.hypot(scx - shooter.x, scy - shooter.y, scz - shooter.z)
+            : Infinity;
+        const useShootPos = hasShootPos && shootPosDelta <= ArenaFFARoom.CLIENT_POS_TRUST_RADIUS;
+        const cx = useShootPos ? scx : lastInput?.clientX;
+        const cy = useShootPos ? scy : lastInput?.clientY;
+        const cz = useShootPos ? scz : lastInput?.clientZ;
         const hasClientPos = cx !== undefined && cy !== undefined && cz !== undefined;
         const clientDelta = hasClientPos
             ? Math.hypot(cx - shooter.x, cy - shooter.y, cz - shooter.z)
             : Infinity;
         const useClientOrigin = hasClientPos && clientDelta <= ArenaFFARoom.CLIENT_POS_TRUST_RADIUS;
+        // shootClient is already eye position; clientPos/shooter need +eyeHeight
         const ox = useClientOrigin ? cx : shooter.x;
-        const oy = (useClientOrigin ? cy : shooter.y) + eyeHeight;
+        const oy = useShootPos
+            ? scy
+            : (useClientOrigin ? cy : shooter.y) + eyeHeight;
         const oz = useClientOrigin ? cz : shooter.z;
+        // Prefer shot-tied aim direction when available (exact frame data)
         let dx;
         let dy;
         let dz;
-        const adx = lastInput?.aimDirX;
-        const ady = lastInput?.aimDirY;
-        const adz = lastInput?.aimDirZ;
-        if (adx !== undefined &&
-            ady !== undefined &&
-            adz !== undefined &&
-            Math.abs(adx * adx + ady * ady + adz * adz - 1) < 0.01) {
-            dx = adx;
-            dy = ady;
-            dz = adz;
+        const sadx = lastInput?.shootAimX;
+        const sady = lastInput?.shootAimY;
+        const sadz = lastInput?.shootAimZ;
+        const hasShootAim = sadx !== undefined &&
+            sady !== undefined &&
+            sadz !== undefined &&
+            Math.abs(sadx * sadx + sady * sady + sadz * sadz - 1) < 0.01;
+        if (hasShootAim) {
+            dx = sadx;
+            dy = sady;
+            dz = sadz;
         }
         else {
-            const yaw = -shooter.yaw;
-            dx = Math.sin(yaw);
-            dy = Math.cos(yaw) * Math.sin(shooter.pitch);
-            dz = -Math.cos(yaw) * Math.cos(shooter.pitch);
+            const adx = lastInput?.aimDirX;
+            const ady = lastInput?.aimDirY;
+            const adz = lastInput?.aimDirZ;
+            if (adx !== undefined &&
+                ady !== undefined &&
+                adz !== undefined &&
+                Math.abs(adx * adx + ady * ady + adz * adz - 1) < 0.01) {
+                dx = adx;
+                dy = ady;
+                dz = adz;
+            }
+            else {
+                const yaw = -shooter.yaw;
+                dx = Math.sin(yaw);
+                dy = Math.cos(yaw) * Math.sin(shooter.pitch);
+                dz = -Math.cos(yaw) * Math.cos(shooter.pitch);
+            }
         }
         let bestId = null;
         let bestT = Infinity;

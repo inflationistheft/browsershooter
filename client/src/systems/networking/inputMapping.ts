@@ -20,7 +20,9 @@ export function inputStateToPlayerInput(
   clientPos?: { x: number; y: number; z: number },
   hitboxPositions?: HitboxPositionsInput,
   aimDir?: { x: number; y: number; z: number },
-  debugMode?: boolean
+  debugMode?: boolean,
+  /** Eye position when shooting (camera position). Used for shoot origin to match crosshair. */
+  shootEyePos?: { x: number; y: number; z: number }
 ): PlayerInput {
   const out: PlayerInput = {
     tick,
@@ -43,6 +45,17 @@ export function inputStateToPlayerInput(
     out.aimDirX = aimDir.x;
     out.aimDirY = aimDir.y;
     out.aimDirZ = aimDir.z;
+  }
+  if (state.shoot && aimDir) {
+    out.shootAimX = aimDir.x;
+    out.shootAimY = aimDir.y;
+    out.shootAimZ = aimDir.z;
+    const pos = shootEyePos ?? clientPos;
+    if (pos) {
+      out.shootClientX = pos.x;
+      out.shootClientY = pos.y;
+      out.shootClientZ = pos.z;
+    }
   }
   if (debugMode) out.debugMode = true;
   if (hitboxPositions && clientPos) {

@@ -71,6 +71,15 @@ export class FPSCamera {
     return this.camera;
   }
 
+  /** Current camera world position (eye position). Matches what the player sees. */
+  getEyePosition(): { x: number; y: number; z: number } {
+    return {
+      x: this.camera.position.x,
+      y: this.camera.position.y,
+      z: this.camera.position.z,
+    };
+  }
+
   resize(width: number, height: number): void {
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();

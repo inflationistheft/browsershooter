@@ -574,13 +574,15 @@ loop
     if (room) {
       const aimDir = cameraSystem.getAimDirection();
       const hitboxForInput = lastHitboxPositions ?? undefined;
+      const shootEyePos = state.shoot ? cameraSystem.getEyePosition() : undefined;
       const playerInput = inputStateToPlayerInput(
         state,
         inputTick,
         snap.position,
         hitboxForInput ?? undefined,
         { x: aimDir.x, y: aimDir.y, z: aimDir.z },
-        debugMode
+        debugMode,
+        shootEyePos
       );
       netClient.sendInput(playerInput);
       if (playerInput.shoot) {
