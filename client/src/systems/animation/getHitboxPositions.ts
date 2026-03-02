@@ -31,6 +31,9 @@ import {
   BONE_RIGHT_FOOT,
   BONE_RIGHT_FOOT_ALT,
   BONE_RIGHT_FOOT_ALT2,
+  BONE_RIGHT_HAND,
+  BONE_RIGHT_HAND_ALT,
+  BONE_RIGHT_HAND_ALT2,
 } from "shared";
 
 export interface HitboxPositions {
@@ -58,6 +61,18 @@ function findSkeleton(root: THREE.Object3D): THREE.Skeleton | null {
     }
   });
   return skel;
+}
+
+/** Find RightHand bone for weapon attachment. Call after model.updateMatrixWorld(true). */
+export function findRightHandBone(model: THREE.Object3D): THREE.Bone | null {
+  const skeleton = findSkeleton(model);
+  if (!skeleton) return null;
+  const bone =
+    skeleton.getBoneByName(BONE_RIGHT_HAND) ??
+    skeleton.getBoneByName(BONE_RIGHT_HAND_ALT) ??
+    skeleton.getBoneByName(BONE_RIGHT_HAND_ALT2) ??
+    null;
+  return bone;
 }
 
 /**

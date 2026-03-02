@@ -37,6 +37,7 @@ import {
 } from "./systems/networking/inputMapping.js";
 import {
   getHitboxPositionsFromModel,
+  findRightHandBone,
   type HitboxPositions,
 } from "./systems/animation/getHitboxPositions.js";
 import type { ArenaState, PlayerStateSchema } from "shared";
@@ -62,6 +63,7 @@ import {
   BONE_LEFT_HAND_ALT,
   BONE_LEFT_HAND_ALT2,
 } from "shared";
+import type { AnimationClipId } from "shared";
 
 const app = document.getElementById("app");
 if (!app) throw new Error("No #app");
@@ -69,9 +71,11 @@ if (!app) throw new Error("No #app");
 const canvas = document.createElement("canvas");
 app.appendChild(canvas);
 
-const isTunerMode = new URLSearchParams(window.location.search).get("tuner") === "1";
-if (isTunerMode) {
+const tunerParam = new URLSearchParams(window.location.search).get("tuner");
+if (tunerParam === "1") {
   void import("./tuner/TunerBoot.js").then((m) => m.bootTuner(app, canvas));
+} else if (tunerParam === "3p") {
+  void import("./tuner/Tuner3PBoot.js").then((m) => m.bootTuner3P(app, canvas));
 } else {
   // --- Game mode ---
 function getCanvasSize(): { w: number; h: number } {
@@ -165,6 +169,21 @@ let hitboxDummyMixer: THREE.AnimationMixer | null = null;
 /** Remote players: sessionId -> { mesh, mixer } */
 const remotePlayerMeshes = new Map<string, THREE.Object3D>();
 const remotePlayerMixers = new Map<string, THREE.AnimationMixer>();
+/** Weapon template for 3P (RightHand-anchored). Cloned per remote player. */
+let weaponTemplate3P: THREE.Object3D | null = null;
+/** Remote player weapon refs: sessionId -> { container, weaponScene, rightHandBone } for world-position follow. */
+const remotePlayerWeaponContainers = new Map<
+  string,
+  {
+    container: THREE.Group;
+    weaponScene: THREE.Object3D;
+    rightHandBone: THREE.Bone | null;
+  }
+>();
+
+const _handPos3p = new THREE.Vector3();
+const _handQuat3p = new THREE.Quaternion();
+const _offsetVec3p = new THREE.Vector3();
 /** Interpolation: 1 - exp(-dt/TAU). ~100ms to 95% of target. */
 const REMOTE_INTERP_TAU = 0.05;
 /** Distance threshold (m) before applying strong correction. Below this, gentle pull to prevent drift. */
@@ -365,8 +384,18 @@ async function initAssets(): Promise<void> {
           }
         }
       });
+      weaponTemplate3P = weaponScene.clone(true);
     } else if (import.meta.env?.DEV) {
       console.warn("[Viewmodel] Weapon failed to load:", clientConfig.viewmodelWeaponUrl);
+    }
+  }
+
+  if (clientConfig.viewmodelWeaponUrl && !weaponTemplate3P) {
+    const weaponScene = await loadViewmodelWeapon(clientConfig.viewmodelWeaponUrl);
+    if (weaponScene) {
+      weaponScene.rotation.x = Math.PI / 2;
+      weaponScene.rotation.z = -Math.PI / 2;
+      weaponTemplate3P = weaponScene;
     }
   }
 
@@ -389,6 +418,22 @@ async function initAssets(): Promise<void> {
       playerAnimationSystem.playStaticIdlePose(hitboxDummyMixer);
     }
   }
+}
+
+function getThirdPersonWeaponCfg(clipId: string) {
+  const overrides = clientConfig.thirdPersonWeaponOffsets[clipId as AnimationClipId];
+  if (overrides) {
+    return overrides;
+  }
+  return {
+    x: clientConfig.thirdPersonWeaponOffset.x,
+    y: clientConfig.thirdPersonWeaponOffset.y,
+    z: clientConfig.thirdPersonWeaponOffset.z,
+    rotX: clientConfig.thirdPersonWeaponRotationX,
+    rotY: clientConfig.thirdPersonWeaponRotationY,
+    rotZ: clientConfig.thirdPersonWeaponRotationZ,
+    scale: clientConfig.thirdPersonWeaponScale,
+  };
 }
 
 function addRemotePlayerMesh(
@@ -418,6 +463,31 @@ function addRemotePlayerMesh(
   const mixer = new THREE.AnimationMixer(clone);
   playerAnimationSystem.playClip(mixer, player.animationState || "idle");
   remotePlayerMixers.set(key, mixer);
+
+  if (weaponTemplate3P) {
+    const rightHandBone = findRightHandBone(clone);
+    const weaponClone = weaponTemplate3P.clone(true);
+    const weaponContainer = new THREE.Group();
+    weaponContainer.add(weaponClone);
+    scene.add(weaponContainer);
+    weaponClone.traverse((obj) => {
+      obj.frustumCulled = false;
+      const m = obj as THREE.Mesh;
+      if (m.isMesh) {
+        const mats = Array.isArray(m.material) ? m.material : [m.material];
+        for (const mat of mats) {
+          if (mat && "side" in mat) {
+            (mat as THREE.MeshStandardMaterial).side = THREE.DoubleSide;
+          }
+        }
+      }
+    });
+    remotePlayerWeaponContainers.set(key, {
+      container: weaponContainer,
+      weaponScene: weaponClone,
+      rightHandBone,
+    });
+  }
 }
 
 function removeRemotePlayerMesh(key: string): void {
@@ -431,6 +501,11 @@ function removeRemotePlayerMesh(key: string): void {
   if (mixer) {
     mixer.stopAllAction();
     remotePlayerMixers.delete(key);
+  }
+  const weaponRef = remotePlayerWeaponContainers.get(key);
+  if (weaponRef) {
+    scene.remove(weaponRef.container);
+    remotePlayerWeaponContainers.delete(key);
   }
 }
 
@@ -527,6 +602,8 @@ function updateRemotePlayers(
     }
     if (mesh) {
       mesh.visible = player.health > 0;
+      const weaponRef = remotePlayerWeaponContainers.get(key);
+      if (weaponRef) weaponRef.container.visible = mesh.visible;
       if (mesh.visible) {
         mesh.position.lerp(
           new THREE.Vector3(player.x, player.y, player.z),
@@ -542,6 +619,22 @@ function updateRemotePlayers(
           if (clipId === "jump") ctx.vy = player.vy;
           if (player.animationTimeScale !== 1) ctx.timeScale = player.animationTimeScale;
           playerAnimationSystem.playClip(mixer, clipId, Object.keys(ctx).length ? ctx : undefined);
+        }
+        if (weaponRef) {
+          mesh.updateMatrixWorld(true);
+          const hand = weaponRef.rightHandBone;
+          const cfg = getThirdPersonWeaponCfg(player.animationState || "idle");
+          const grip = clientConfig.thirdPersonWeaponGripOffset;
+          if (hand) {
+            hand.getWorldPosition(_handPos3p);
+            hand.getWorldQuaternion(_handQuat3p);
+            _offsetVec3p.set(cfg.x, cfg.y, cfg.z).applyQuaternion(_handQuat3p);
+            weaponRef.container.position.copy(_handPos3p).add(_offsetVec3p);
+            weaponRef.container.quaternion.copy(_handQuat3p);
+          }
+          weaponRef.weaponScene.position.set(grip.x, grip.y, grip.z);
+          weaponRef.weaponScene.rotation.set(Math.PI / 2 + cfg.rotX, cfg.rotY, cfg.rotZ);
+          weaponRef.weaponScene.scale.setScalar(cfg.scale);
         }
       }
     }

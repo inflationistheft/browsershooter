@@ -2,6 +2,18 @@
  * Central client config and feature flags.
  */
 
+import type { AnimationClipId } from "shared";
+
+export interface ThirdPersonWeaponOffset {
+  x: number;
+  y: number;
+  z: number;
+  rotX: number;
+  rotY: number;
+  rotZ: number;
+  scale: number;
+}
+
 export const clientConfig = {
   /** Server URL for Colyseus (dev) */
   serverUrl: (import.meta as unknown as { env?: { VITE_SERVER_URL?: string } }).env?.VITE_SERVER_URL ?? "ws://localhost:2567",
@@ -48,4 +60,22 @@ export const clientConfig = {
    * run, jump, slide, crouchForward, crouchBackward, crouchLeft, crouchRight.
    */
   animationClipNames: {} as Partial<Record<string, string>>,
+
+  /** Third-person weapon (remote players). Origin at RightHand. */
+  thirdPersonWeaponOffset: { x: 0, y: 0, z: 0 },
+  /** Grip alignment for 3P weapon. */
+  thirdPersonWeaponGripOffset: { x: 0, y: 0, z: 0 },
+  /** Scale for 3P weapon. */
+  thirdPersonWeaponScale: 1,
+  /** Extra rotation (rad) for 3P weapon. */
+  thirdPersonWeaponRotationX: 0.19,
+  thirdPersonWeaponRotationY: 3.16,
+  thirdPersonWeaponRotationZ: 1.45,
+  /** Per-animation overrides for 3P weapon (slide, jump, etc. have different hand poses). */
+  thirdPersonWeaponOffsets: {
+    crouchForward: { x: 0, y: 0, z: 0, rotX: 0.12, rotY: 3.43, rotZ: 1.45, scale: 1 },
+    crouchBackward: { x: 0, y: 0, z: 0, rotX: 0.12, rotY: 3.43, rotZ: 1.45, scale: 1 },
+    crouchLeft: { x: 0, y: 0, z: 0, rotX: 0.12, rotY: 3.43, rotZ: 1.45, scale: 1 },
+    crouchRight: { x: 0, y: 0, z: 0, rotX: 0.12, rotY: 3.43, rotZ: 1.45, scale: 1 },
+  } as Partial<Record<AnimationClipId, ThirdPersonWeaponOffset>>,
 };
