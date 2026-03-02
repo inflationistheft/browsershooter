@@ -8,4 +8,5 @@ export * from "./arena/index.js";
 export * from "./hitscan/rayIntersection.js";
 export * from "./hitbox/boneNames.js";
 export * from "./movement/stepPlayerMovement.js";
+export * from "./movement/playerCollision.js";
 //# sourceMappingURL=index.d.ts.map

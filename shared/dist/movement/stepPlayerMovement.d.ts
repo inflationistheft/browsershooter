@@ -6,8 +6,10 @@ export interface MovementStepInput {
     moveX: number;
     moveZ: number;
     jump: boolean;
-    /** True when slide key held or slideIntentTicks > 0. */
+    /** True when Shift held or slideIntentTicks > 0. Triggers slide when moving fast. */
     hasSlideIntent: boolean;
+    /** True when C held. Crouch walk only (no slide). */
+    crouch: boolean;
     yaw: number;
     pitch: number;
 }

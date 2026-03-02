@@ -247,16 +247,26 @@ export class RemotePlayerSync {
     const dy = localState.y - m.position.y;
     const dz = localState.z - m.position.z;
     const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-    const { reconcileMin, reconcileThreshold, reconcileLerp, reconcileLerpGentle } =
+    const { reconcileMin, reconcileYMin, reconcileThreshold, reconcileLerp, reconcileLerpGentle } =
       clientConfig.tuning;
     if (dist <= reconcileMin) return;
 
     const t = dist >= reconcileThreshold ? reconcileLerp : reconcileLerpGentle;
+
+    const snap = m.getSnapshot();
+    const clientAirborne = snap.state === "airborne";
+    const serverGrounded = localState.y <= 0.02;
+    const smallVerticalDiff = Math.abs(dy) < reconcileYMin;
+    const skipVerticalReconcile =
+      (clientAirborne && serverGrounded) || smallVerticalDiff;
+
     m.position.x += dx * t;
-    m.position.y += dy * t;
     m.position.z += dz * t;
+    if (!skipVerticalReconcile) {
+      m.position.y += dy * t;
+      m.velocity.y += (localState.vy - m.velocity.y) * t;
+    }
     m.velocity.x += (localState.vx - m.velocity.x) * t;
-    m.velocity.y += (localState.vy - m.velocity.y) * t;
     m.velocity.z += (localState.vz - m.velocity.z) * t;
     m.yaw += ((localState.yaw - m.yaw + Math.PI) % (2 * Math.PI) - Math.PI) * t;
     m.pitch += (localState.pitch - m.pitch) * t;

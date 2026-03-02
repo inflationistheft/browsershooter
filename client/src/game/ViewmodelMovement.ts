@@ -32,8 +32,13 @@ export interface ViewmodelMovementState {
   recoilPullback: number;
   recoilRoll: number;
   slideBlend: number;
-  /** Optional impact dip when slide starts (short downward kick). */
-  slideImpactDip: number;
+  /** Slide impact: 1D spring (dip + bounce). */
+  slideImpactSpringY: number;
+  slideImpactSpringVy: number;
+  /** Slide friction wiggle: phase 0..1, decays. */
+  slideWigglePhase: number;
+  /** Slide end: tiny release bump that decays. */
+  slideReleaseBump: number;
   /** Strafe lean: smoothed position offset (X) and roll (Z) – posture shift when A/D. */
   strafeLeanX: number;
   strafeLeanRoll: number;
@@ -84,7 +89,10 @@ export function createViewmodelMovementState(): ViewmodelMovementState {
     recoilPullback: 0,
     recoilRoll: 0,
     slideBlend: 0,
-    slideImpactDip: 0,
+    slideImpactSpringY: 0,
+    slideImpactSpringVy: 0,
+    slideWigglePhase: 1,
+    slideReleaseBump: 0,
     strafeLeanX: 0,
     strafeLeanRoll: 0,
     forwardLeanZ: 0,
@@ -184,17 +192,49 @@ export function updateViewmodelMovement(
   const prevSlide = state.slideBlend;
   state.slideBlend = lerp(state.slideBlend, targetSlide, dt / slideTau);
 
-  // --- Slide impact dip: short downward kick when slide starts ---
-  if (state.slideBlend > 0.01 && prevSlide < 0.1) {
-    state.slideImpactDip = cfg.slideImpactDipAmp;
+  const slideJustStarted = state.slideBlend > 0.05 && prevSlide < 0.1;
+  if (slideJustStarted) {
+    state.slideImpactSpringY = cfg.slideImpactDipAmp;
+    state.slideImpactSpringVy = 0;
+    state.slideWigglePhase = 0;
   }
-  state.slideImpactDip = lerp(state.slideImpactDip, 0, dt / cfg.slideImpactDipTau);
+  if (state.slideBlend > 0.01) {
+    const springK = cfg.slideImpactSpringK ?? 80;
+    const springDamp = cfg.slideImpactSpringDamp ?? 12;
+    const ay = -springK * state.slideImpactSpringY - springDamp * state.slideImpactSpringVy;
+    state.slideImpactSpringVy += ay * dt;
+    state.slideImpactSpringY += state.slideImpactSpringVy * dt;
+  } else {
+    state.slideImpactSpringY = 0;
+    state.slideImpactSpringVy = 0;
+  }
+  const slideImpactY = state.slideImpactSpringY;
+
+  const wiggleDuration = cfg.slideWiggleDuration ?? 0.3;
+  if (state.slideBlend > 0.01 && state.slideWigglePhase < 1) {
+    state.slideWigglePhase = Math.min(1, state.slideWigglePhase + dt / wiggleDuration);
+  } else if (state.slideBlend < 0.5) {
+    state.slideWigglePhase = 1;
+  }
+  const wiggleFade = 1 - state.slideWigglePhase;
+  const slideWiggleRoll =
+    state.slideBlend *
+    wiggleFade *
+    (cfg.slideWiggleRoll ?? 0.004) *
+    Math.sin(state.idleTime * 18);
+
+  const slideJustEnded = prevSlide > 0.3 && !isSliding && state.slideBlend < prevSlide;
+  const releaseAmp = cfg.slideReleaseBump ?? 0;
+  if (slideJustEnded && releaseAmp !== 0) {
+    state.slideReleaseBump = releaseAmp;
+  }
+  state.slideReleaseBump = lerp(state.slideReleaseBump, 0, dt / (cfg.slideReleaseBumpTau ?? 0.08));
 
   // --- Smoothed phase speed: stabilizes Bob, no micro-variation/stutter ---
-  const bobMultiplier = crouching ? cfg.bobCrouchMultiplier : 1;
+  const bobFreqMultiplier = crouching ? (cfg.bobCrouchFreqMultiplier ?? 1) : 1;
   const targetPhaseSpeed =
     isGrounded && horSpeed > BOB_SPEED_THRESHOLD && !isSliding
-      ? Math.min(1, horSpeed / MAX_SPEED_FOR_FACTOR) * cfg.bobFrequency * bobMultiplier
+      ? Math.min(1, horSpeed / MAX_SPEED_FOR_FACTOR) * cfg.bobFrequency * bobFreqMultiplier
       : 0;
   state.smoothedPhaseSpeed = lerp(
     state.smoothedPhaseSpeed,
@@ -204,7 +244,8 @@ export function updateViewmodelMovement(
   state.bobPhase += dt * state.smoothedPhaseSpeed;
 
   // --- Amplitude blend: 0 below threshold, smooth ramp above ---
-  const m = state.moveFactor * bobMultiplier;
+  const ampMultiplier = crouching ? (cfg.bobCrouchAmpMultiplier ?? 1) : 1;
+  const m = state.moveFactor * ampMultiplier;
   const ampBlend = m <= BOB_AMP_THRESHOLD ? 0 : Math.min(1, (m - BOB_AMP_THRESHOLD) / (1 - BOB_AMP_THRESHOLD));
 
   // --- Direction-aware weights: forward vs strafe (for Bob mix + Lean) ---
@@ -243,14 +284,15 @@ export function updateViewmodelMovement(
   const rollMult = 1 + strafeWeight * (cfg.strafeBobRollBoost ?? 0.8);
 
   // --- WalkBob: Y/X same freq (sin phase), strafe reduces Y and boosts X/roll ---
+  const bobSlideMult = 1 - state.slideBlend * (cfg.bobSlideReduce ?? 0.98);
   const phase = state.bobPhase;
   const bobY =
-    cfg.bobAmplitudeY * ampBlend * wY * yMult * Math.sin(phase);
+    cfg.bobAmplitudeY * ampBlend * wY * yMult * Math.sin(phase) * bobSlideMult;
   const bobX =
-    cfg.bobAmplitudeX * ampBlend * wX * xMult * Math.sin(phase + cfg.bobPhaseOffsetX);
+    cfg.bobAmplitudeX * ampBlend * wX * xMult * Math.sin(phase + cfg.bobPhaseOffsetX) * bobSlideMult;
   const bobRoll =
-    cfg.bobAmplitudeRoll * ampBlend * wRoll * rollMult * Math.sin(phase + 0.7);
-  const bobPitch = cfg.bobAmplitudePitch * ampBlend * Math.sin(phase + 0.4);
+    cfg.bobAmplitudeRoll * ampBlend * wRoll * rollMult * Math.sin(phase + 0.7) * bobSlideMult;
+  const bobPitch = cfg.bobAmplitudePitch * ampBlend * Math.sin(phase + 0.4) * bobSlideMult;
 
   // --- Sway: smooth mouse deltas first (avoids tick-rate stutter), then target + spring back ---
   let yawDelta = 0;
@@ -294,10 +336,12 @@ export function updateViewmodelMovement(
   state.recoilPullback = lerp(state.recoilPullback, 0, dt / recoilTau);
   state.recoilRoll = lerp(state.recoilRoll, 0, dt / recoilTau);
 
-  // --- Slide pose: lower, inward tilt, slightly closer ---
-  const slideY = state.slideBlend * cfg.slideYOffset + state.slideImpactDip;
+  // --- Slide pose: lower, inward tilt, Z back, optional pitch down ---
+  const slideY =
+    state.slideBlend * cfg.slideYOffset + slideImpactY + state.slideReleaseBump;
   const slideZ = state.slideBlend * cfg.slideZOffset;
-  const slideRotZ = state.slideBlend * cfg.slideInwardTilt;
+  const slideRotZ = state.slideBlend * cfg.slideInwardTilt + slideWiggleRoll;
+  const slidePitch = state.slideBlend * (cfg.slidePitchDown ?? -0.1);
 
   // --- Idle breathing: slow, organic, not pure sinus ---
   state.idleTime += dt;
@@ -330,7 +374,7 @@ export function updateViewmodelMovement(
     state.recoilPullback + slideZ + state.forwardLeanZ + jumpPosZ
   );
   state._targetRot.set(
-    state.swayPitch + state.recoilPitch + bobPitch + idlePitch,
+    state.swayPitch + state.recoilPitch + bobPitch + idlePitch + slidePitch,
     state.swayYaw,
     slideRotZ + state.recoilRoll + bobRoll + state.strafeLeanRoll + idleRoll + landingRoll,
     "YXZ"
@@ -377,7 +421,8 @@ const DEFAULT_POV_MOVEMENT = {
   swaySmoothTau: 0.05,
   swayDeltaSmoothTau: 0.04,
   swayReturnDamping: 0.88,
-  swaySlideReduce: 0.7,
+  swaySlideReduce: 0.92,
+  bobSlideReduce: 0.98,
   strafeLeanX: 0.1,
   strafeLeanRoll: 0.025,
   forwardLeanZ: 0.1,
@@ -390,11 +435,19 @@ const DEFAULT_POV_MOVEMENT = {
   recoilRollVariation: 0.02,
   recoilRecoveryTau: 0.06,
   recoilSlideReduce: 0.5,
-  slideYOffset: -0.015,
-  slideZOffset: -0.01,
-  slideInwardTilt: 0.15,
-  slideImpactDipAmp: -0.008,
-  slideImpactDipTau: 0.04,
-  slideInTau: 0.03,
-  slideOutTau: 0.1,
+  slideYOffset: -0.2,
+  slideZOffset: 0.1,
+  slideInwardTilt: 0.38,
+  slidePitchDown: -0.1,
+  slideImpactDipAmp: -0.012,
+  slideImpactSpringK: 80,
+  slideImpactSpringDamp: 18,
+  slideWiggleRoll: 0.005,
+  slideWiggleDuration: 0.3,
+  slideReleaseBump: 0,
+  slideReleaseBumpTau: 0.1,
+  slideInTau: 0.04,
+  slideOutTau: 0.28,
+  bobCrouchFreqMultiplier: 1,
+  bobCrouchAmpMultiplier: 1,
 };

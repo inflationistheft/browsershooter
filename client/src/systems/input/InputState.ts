@@ -7,11 +7,14 @@ export interface InputState {
   moveZ: number;
   sprint: boolean;
   jump: boolean;
+  /** Shift: triggers slide when moving fast. */
   slide: boolean;
-  /** True only on the first frame when slide key went down (so we don't enter slide from holding C from start). */
+  /** True only on the first frame when slide key (Shift) went down. */
   slideJustPressed: boolean;
-  /** Ticks remaining where slide can trigger (set on keydown so short taps are not missed). */
+  /** Ticks remaining where slide can trigger (set on Shift keydown so short taps are not missed). */
   slideIntentTicks: number;
+  /** C: crouch only (slow walk, no slide). */
+  crouch: boolean;
   yaw: number;
   pitch: number;
   shoot: boolean;
@@ -28,6 +31,7 @@ export const defaultInputState: InputState = {
   slide: false,
   slideJustPressed: false,
   slideIntentTicks: 0,
+  crouch: false,
   yaw: 0,
   pitch: 0,
   shoot: false,
@@ -35,8 +39,8 @@ export const defaultInputState: InputState = {
   debugModeJustPressed: false,
 };
 
-/** Key codes to lock when pointer lock is active: browser shortcuts + crouch/slide so Shift/Ctrl/C work reliably. */
-const LOCK_KEYS_FOR_BROWSER_SHORTCUTS = ["KeyW", "KeyN", "KeyT", "KeyC", "ShiftLeft", "ShiftRight", "ControlLeft", "ControlRight"];
+/** Key codes to lock when pointer lock is active: browser shortcuts + crouch/slide so Shift/C work reliably. */
+const LOCK_KEYS_FOR_BROWSER_SHORTCUTS = ["KeyW", "KeyN", "KeyT", "KeyC", "ShiftLeft", "ShiftRight"];
 
 /** Block Ctrl+W / Ctrl+N / Ctrl+T in capture phase so tab doesn't close when pointer locked. */
 function installCaptureShortcutBlocker(_getPointerLocked: () => boolean): void {
@@ -59,10 +63,10 @@ export class InputSampler {
   private pointerLocked = false;
   private sensitivity = 0.002;
   private bound = false;
-  /** Keys currently held (code string). Sprint/slide derived from this so they are not overwritten by other key events. */
+  /** Keys currently held (code string). Sprint/slide/crouch derived from this so they are not overwritten by other key events. */
   private keysDown = new Set<string>();
   private slideWasDown = false;
-  /** Event-driven: set on keydown so short taps (keydown+keyup within one frame) are not missed. */
+  /** Event-driven: set on Shift keydown so short taps (keydown+keyup within one frame) are not missed. */
   private _slideIntentTicks = 0;
 
   /**
@@ -71,16 +75,12 @@ export class InputSampler {
    */
   getState(): Readonly<InputState> {
     this.state.sprint = false; // Unused (kept for schema compat)
-    const slideNow =
-      this.keysDown.has("ShiftLeft") ||
-      this.keysDown.has("ShiftRight") ||
-      this.keysDown.has("ControlLeft") ||
-      this.keysDown.has("ControlRight") ||
-      this.keysDown.has("KeyC");
+    const slideNow = this.keysDown.has("ShiftLeft") || this.keysDown.has("ShiftRight");
     this.state.slideJustPressed = slideNow && !this.slideWasDown;
     this.slideWasDown = slideNow;
     this.state.slide = slideNow;
     this.state.slideIntentTicks = this._slideIntentTicks;
+    this.state.crouch = this.keysDown.has("KeyC");
     return this.state;
   }
 
@@ -148,13 +148,7 @@ export class InputSampler {
   }
 
   private isSlideKey(code: string): boolean {
-    return (
-      code === "ShiftLeft" ||
-      code === "ShiftRight" ||
-      code === "ControlLeft" ||
-      code === "ControlRight" ||
-      code === "KeyC"
-    );
+    return code === "ShiftLeft" || code === "ShiftRight";
   }
 
   private onKey(code: string, down: boolean, e?: KeyboardEvent): void {
@@ -172,7 +166,6 @@ export class InputSampler {
     if (code === "KeyA") this.state.moveX = down ? -1 : (this.state.moveX === -1 ? 0 : this.state.moveX);
     if (code === "KeyD") this.state.moveX = down ? 1 : (this.state.moveX === 1 ? 0 : this.state.moveX);
     if (code === "ShiftLeft" || code === "ShiftRight" || key === "shift") e.preventDefault();
-    if (code === "ControlLeft" || code === "ControlRight" || key === "control") e.preventDefault();
     if (code === "KeyC") e.preventDefault();
     if (this.pointerLocked && e.ctrlKey && (code === "KeyW" || code === "KeyN" || code === "KeyT" || key === "w" || key === "n" || key === "t")) {
       e.preventDefault();

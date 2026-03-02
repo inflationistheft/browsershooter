@@ -2,7 +2,7 @@
  * FFA Arena room: tick loop, state sync, placeholder movement.
  */
 import { Room } from "@colyseus/core";
-import { rayArenaIntersection, resolveAnimationClipId, TICK_RATE, PLAYER_RADIUS, PLAYER_EYE_HEIGHT, CROUCH_EYE_HEIGHT, HITSCAN_RANGE, HITSCAN_BODY_DAMAGE, HITSCAN_HEAD_MULTIPLIER, SHOT_INTERVAL_TICKS, RELOAD_TICKS, REGEN_DELAY_TICKS, SHIELD_REGEN_PER_SEC, HEALTH_REGEN_PER_SEC, MAX_SHIELD, MAX_HEALTH, RESPAWN_DELAY_SEC, HEAD_HITBOX_HEIGHT, HEAD_HITBOX_RADIUS, BODY_CAPSULE_TOP, BODY_CAPSULE_RADIUS, BODY_CAPSULE_TOP_EXTEND, raySphereIntersection, rayCapsuleIntersection, DEBUG_HEAD_ONLY, stepPlayerMovement, tickMovementTimers, } from "shared";
+import { rayArenaIntersection, resolveAnimationClipId, TICK_RATE, PLAYER_RADIUS, PLAYER_EYE_HEIGHT, CROUCH_EYE_HEIGHT, HITSCAN_RANGE, HITSCAN_BODY_DAMAGE, HITSCAN_HEAD_MULTIPLIER, SHOT_INTERVAL_TICKS, RELOAD_TICKS, REGEN_DELAY_TICKS, SHIELD_REGEN_PER_SEC, HEALTH_REGEN_PER_SEC, MAX_SHIELD, MAX_HEALTH, RESPAWN_DELAY_SEC, HEAD_HITBOX_HEIGHT, HEAD_HITBOX_RADIUS, BODY_CAPSULE_TOP, BODY_CAPSULE_RADIUS, BODY_CAPSULE_TOP_EXTEND, raySphereIntersection, rayCapsuleIntersection, DEBUG_HEAD_ONLY, stepPlayerMovement, tickMovementTimers, resolvePlayerCollisions, } from "shared";
 import { ArenaState, PlayerStateSchema } from "shared";
 import { serverConfig } from "../config/index.js";
 import { createPlayerExtendedState, } from "../PlayerExtendedState.js";
@@ -166,11 +166,13 @@ export class ArenaFFARoom extends Room {
                     player.pitch = lastInput.pitch;
                 ArenaFFARoom.storeHitboxPositionsIfValid(player, ext, lastInput);
                 const hasSlideIntent = (lastInput.slide ?? false) || (lastInput.slideIntentTicks ?? 0) > 0;
+                const crouch = lastInput.crouch ?? false;
                 const movementInput = {
                     moveX: lastInput.moveX ?? 0,
                     moveZ: lastInput.moveZ ?? 0,
                     jump: lastInput.jump ?? false,
                     hasSlideIntent,
+                    crouch,
                     yaw: player.yaw,
                     pitch: player.pitch,
                 };
@@ -196,7 +198,7 @@ export class ArenaFFARoom extends Room {
                     moveX: lastInput.moveX ?? 0,
                     moveZ: lastInput.moveZ ?? 0,
                     sprint: lastInput.sprint ?? false,
-                    crouching: player.movementState === "sliding" || hasSlideIntent,
+                    crouching: player.movementState === "sliding" || crouch,
                     movementState: player.movementState,
                 });
                 player.animationState = animId;
@@ -220,7 +222,8 @@ export class ArenaFFARoom extends Room {
                     player.ammo--;
                 ext.shootCooldownTicks = SHOT_INTERVAL_TICKS;
                 player.lastShotTick = this._tickCount;
-                const crouching = player.movementState === "grounded" && (lastInput?.slide ?? false);
+                const crouching = player.movementState === "sliding" ||
+                    (player.movementState === "grounded" && (lastInput?.crouch ?? false));
                 const hitResult = this.hitscanRaycast(shooterId, player, crouching, lastInput);
                 if (hitResult) {
                     const target = this.state.players.get(hitResult.targetId);
@@ -271,6 +274,8 @@ export class ArenaFFARoom extends Room {
                 }
             }
         });
+        // Resolve player-player collisions (push apart, bounce)
+        resolvePlayerCollisions(this.state.players, (id) => (this.state.players.get(id)?.health ?? 0) > 0, PLAYER_RADIUS);
     }
     /** Max distance (m) from server pos to trust client-reported position for ray origin. */
     static { this.CLIENT_POS_TRUST_RADIUS = 5; }

@@ -56,6 +56,7 @@ export class FPSMovementController {
       moveZ: input.moveZ,
       jump: effectiveJump,
       hasSlideIntent,
+      crouch: input.crouch,
       yaw: input.yaw,
       pitch: input.pitch,
     };
@@ -90,7 +91,7 @@ export class FPSMovementController {
     }
 
     this.crouching =
-      this.state === "sliding" || (this.state === "grounded" && hasSlideIntent);
+      this.state === "sliding" || (this.state === "grounded" && input.crouch);
   }
 
   getSnapshot(): MovementSnapshot {

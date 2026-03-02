@@ -133,14 +133,46 @@ Dann: `_pos.lerp(_targetPos)` und `_rot` lerp zu `_targetRot` (Tau 0.025).
 
 ---
 
-## 7. Verhalten im Detail
+## 7. Slide (Viewmodel)
+
+**Zielpose (während Slide):**
+
+- **Y tiefer** (slideYOffset ~ -0.2)
+- **Z nach hinten** (slideZOffset ~ 0.1, gezogen/geduckt)
+- **Roll stärker nach innen** (slideInwardTilt ~ 0.38, Signature-Look)
+- **Pitch nach vorne** (slidePitchDown ~ -0.1)
+
+**Blend (weich rein/raus):**
+
+- `slideBlend` lerpt zu 1 beim Start (slideInTau ~ 0.04)
+- `slideBlend` lerpt zu 0 beim Ende (slideOutTau ~ 0.28, weicher Ausstieg)
+
+**Slide-Start (Impact):**
+
+- Kurzer Dip nach unten (slideImpactDipAmp ~ -0.012)
+- Feder mit Bounce (slideImpactSpringK, slideImpactSpringDamp)
+- Fühlt sich wie „Eintauchen“ an, dann stabil
+
+**Während Slide:**
+
+- **Friction Wiggle:** subtiler Micro-Roll (~0.3s), dann stabil (slideWiggleRoll, slideWiggleDuration)
+- **Bob:** stark reduziert (bobSlideReduce ~ 0.98)
+- **Sway:** reduziert (swaySlideReduce ~ 0.92)
+
+**Slide-Ende:**
+
+- Blend geht weich runter, kein Snap zurück (slideReleaseBump = 0)
+
+---
+
+## 8. Verhalten im Detail
 
 | Situation | moveFactor | Bob-Phase | Bob-Output |
 |-----------|------------|-----------|------------|
 | Idle (velocity 0) | → 0 (geglättet) | stoppt | → 0 (über m) |
 | Walk (velocity ~4) | ~0.5 | läuft | volle Welle |
 | Run (velocity ~8) | 1 | läuft schneller | stärkere Welle |
-| Crouch walk | ~0.5 * 0.5 | langsamer | halbe Amplitude |
+| Crouch walk / Crouch strafe | ~0.5 | gleiche Frequenz wie Walk | volle Amplitude |
 | Slide | 0 | stoppt | 0 |
 | Airborne | 0 | stoppt | 0 |
 | Strafe (D) | ~0.5 | läuft | wenig Y, viel X + Roll + Lean rechts |
@@ -148,7 +180,7 @@ Dann: `_pos.lerp(_targetPos)` und `_rot` lerp zu `_targetRot` (Tau 0.025).
 
 ---
 
-## 8. Mögliche Anpassungen
+## 9. Mögliche Anpassungen
 
 - **Schritt-Timing:** Frequenz ist fest (`bobFrequency: 10`), nicht an echte Schrittlänge gekoppelt
 - **Wellenform:** Y und X nutzen `sin`, keine Perlin oder komplexere Kurven
@@ -158,7 +190,7 @@ Dann: `_pos.lerp(_targetPos)` und `_rot` lerp zu `_targetRot` (Tau 0.025).
 
 ---
 
-## 9. Relevante Dateien
+## 10. Relevante Dateien
 
 - **Logik:** `client/src/game/ViewmodelMovement.ts` (Zeilen 87–115)
 - **Tuning:** `client/src/config/index.ts` → `tuning.povMovement`

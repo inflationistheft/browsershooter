@@ -32,10 +32,10 @@ export const HEAD_HITBOX_OFFSET_Z = 0;
 export const HEAD_HITBOX_OFFSET_FORWARD = 0.03;
 /** Body capsule: bottom Y offset from feet (meters). */
 export const BODY_CAPSULE_BOTTOM = 0.2;
-/** Body capsule: top Y offset from feet (meters). Slightly above 1.35 to cover neck gap. */
-export const BODY_CAPSULE_TOP = 1.45;
+/** Body capsule: top Y offset from feet (meters). Reduced when radius increases to keep total height constant. */
+export const BODY_CAPSULE_TOP = 1.41;
 /** Body capsule: radius (torso + shoulders + legs). */
-export const BODY_CAPSULE_RADIUS = 0.24;
+export const BODY_CAPSULE_RADIUS = 0.26;
 /** Extra height (m) above spineTop to cover neck gap. */
 export const BODY_CAPSULE_TOP_EXTEND = 0.02;
 /** Hitscan: max range in meters. */

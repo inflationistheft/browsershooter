@@ -14,12 +14,15 @@ export interface PovMovementTuning {
   bobAmplitudePitch: number;
   bobPhaseOffsetX: number;
   bobFrequency: number;
-  bobCrouchMultiplier: number;
+  bobCrouchMultiplier?: number;
+  bobCrouchFreqMultiplier?: number;
+  bobCrouchAmpMultiplier?: number;
   swayLookFactor: number;
   swaySmoothTau: number;
   swayDeltaSmoothTau?: number;
   swayReturnDamping: number;
   swaySlideReduce: number;
+  bobSlideReduce?: number;
   strafeLeanX?: number;
   strafeLeanRoll?: number;
   forwardLeanZ?: number;
@@ -51,8 +54,14 @@ export interface PovMovementTuning {
   slideYOffset: number;
   slideZOffset: number;
   slideInwardTilt: number;
+  slidePitchDown?: number;
   slideImpactDipAmp: number;
-  slideImpactDipTau: number;
+  slideImpactSpringK?: number;
+  slideImpactSpringDamp?: number;
+  slideWiggleRoll?: number;
+  slideWiggleDuration?: number;
+  slideReleaseBump?: number;
+  slideReleaseBumpTau?: number;
   slideInTau: number;
   slideOutTau: number;
 }
@@ -157,7 +166,8 @@ export const clientConfig = {
       swaySmoothTau: 0.05,
       swayDeltaSmoothTau: 0.04,
       swayReturnDamping: 0.88,
-      swaySlideReduce: 0.7,
+      swaySlideReduce: 0.92,
+      bobSlideReduce: 0.98,
       strafeLeanX: 0.2,
       strafeLeanRoll: 0.025,
       forwardLeanZ: 0.1,
@@ -172,7 +182,7 @@ export const clientConfig = {
       idleRollAmplitude: 0.0012,
       idleWalkReduce: 0.85,
       idleAirborneReduce: 0.3,
-      jumpTakeoffDip: -0.016,
+      jumpTakeoffDip: -0.008,
       jumpTakeoffDecay: 8,
       jumpAirborneFloatY: 0.032,
       jumpLandingDip: -0.06,
@@ -186,13 +196,21 @@ export const clientConfig = {
       recoilRollVariation: 0.02,
       recoilRecoveryTau: 0.06,
       recoilSlideReduce: 0.5,
-      slideYOffset: -0.015,
-      slideZOffset: -0.01,
-      slideInwardTilt: 0.15,
-      slideImpactDipAmp: -0.008,
-      slideImpactDipTau: 0.04,
-      slideInTau: 0.03,
-      slideOutTau: 0.1,
+      slideYOffset: -0.2,
+      slideZOffset: 0.1,
+      slideInwardTilt: 0.38,
+      slidePitchDown: -0.1,
+      slideImpactDipAmp: -0.012,
+      slideImpactSpringK: 80,
+      slideImpactSpringDamp: 18,
+      slideWiggleRoll: 0.005,
+      slideWiggleDuration: 0.3,
+      slideReleaseBump: 0,
+      slideReleaseBumpTau: 0.1,
+      slideInTau: 0.04,
+      slideOutTau: 0.28,
+      bobCrouchFreqMultiplier: 1,
+      bobCrouchAmpMultiplier: 1,
     } as PovMovementTuning,
     /** Remote player interpolation: 1 - exp(-dt/TAU). ~100ms to 95% of target. */
     remoteInterpTau: 0.05,
@@ -202,6 +220,8 @@ export const clientConfig = {
     reconcileLerp: 0.5,
     /** Minimal distance (m) to trigger any correction (avoids jitter). */
     reconcileMin: 0.01,
+    /** Minimal vertical difference (m) before applying Y correction. Skips small vertical jitter. */
+    reconcileYMin: 0.08,
     /** Blend factor for gentle correction when below threshold. */
     reconcileLerpGentle: 0.15,
   },

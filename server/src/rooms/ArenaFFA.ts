@@ -31,6 +31,7 @@ import {
   DEBUG_HEAD_ONLY,
   stepPlayerMovement,
   tickMovementTimers,
+  resolvePlayerCollisions,
 } from "shared";
 import type { PlayerInput } from "shared";
 import { ArenaState, PlayerStateSchema } from "shared";
@@ -222,12 +223,14 @@ export class ArenaFFARoom extends Room<ArenaState> {
 
         const hasSlideIntent =
           (lastInput.slide ?? false) || (lastInput.slideIntentTicks ?? 0) > 0;
+        const crouch = lastInput.crouch ?? false;
 
         const movementInput = {
           moveX: lastInput.moveX ?? 0,
           moveZ: lastInput.moveZ ?? 0,
           jump: lastInput.jump ?? false,
           hasSlideIntent,
+          crouch,
           yaw: player.yaw,
           pitch: player.pitch,
         };
@@ -254,7 +257,7 @@ export class ArenaFFARoom extends Room<ArenaState> {
           moveX: lastInput.moveX ?? 0,
           moveZ: lastInput.moveZ ?? 0,
           sprint: lastInput.sprint ?? false,
-          crouching: player.movementState === "sliding" || hasSlideIntent,
+          crouching: player.movementState === "sliding" || crouch,
           movementState: player.movementState as "grounded" | "sliding" | "airborne",
         });
         player.animationState = animId;
@@ -282,7 +285,8 @@ export class ArenaFFARoom extends Room<ArenaState> {
         ext.shootCooldownTicks = SHOT_INTERVAL_TICKS;
         player.lastShotTick = this._tickCount;
         const crouching =
-          player.movementState === "grounded" && (lastInput?.slide ?? false);
+          player.movementState === "sliding" ||
+          (player.movementState === "grounded" && (lastInput?.crouch ?? false));
         const hitResult = this.hitscanRaycast(shooterId, player, crouching, lastInput);
         if (hitResult) {
           const target = this.state.players.get(hitResult.targetId);
@@ -340,6 +344,13 @@ export class ArenaFFARoom extends Room<ArenaState> {
         }
       }
     });
+
+    // Resolve player-player collisions (push apart, bounce)
+    resolvePlayerCollisions(
+      this.state.players,
+      (id) => (this.state.players.get(id)?.health ?? 0) > 0,
+      PLAYER_RADIUS
+    );
   }
 
   /** Max distance (m) from server pos to trust client-reported position for ray origin. */

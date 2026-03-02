@@ -13,8 +13,10 @@ export interface MovementStepInput {
   moveX: number;
   moveZ: number;
   jump: boolean;
-  /** True when slide key held or slideIntentTicks > 0. */
+  /** True when Shift held or slideIntentTicks > 0. Triggers slide when moving fast. */
   hasSlideIntent: boolean;
+  /** True when C held. Crouch walk only (no slide). */
+  crouch: boolean;
   yaw: number;
   pitch: number;
 }
@@ -130,7 +132,7 @@ export function stepPlayerMovement(
   }
 
   if (state.movementState === "airborne") {
-    if (input.hasSlideIntent) ext.slideOnLand = true;
+    if (input.hasSlideIntent) ext.slideOnLand = true; // Shift held: slide on landing if fast enough
 
     const hor = Math.hypot(state.vx, state.vz);
     const horCap = ext.horSpeedWhenJumped;
@@ -197,7 +199,7 @@ export function stepPlayerMovement(
     return;
   }
 
-  const crouching = input.hasSlideIntent;
+  const crouching = input.crouch; // C only: crouch walk, no slide
   const speed = crouching ? t.maxSpeedCrouch : t.maxSpeedWalk;
   const cos = Math.cos(input.yaw);
   const sin = Math.sin(input.yaw);

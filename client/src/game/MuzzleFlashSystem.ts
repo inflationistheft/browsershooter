@@ -24,7 +24,7 @@ export class MuzzleFlashEffect {
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
-      color: 0xffffff,
+      color: 0xffdc88,
     });
     this.sprite = new THREE.Sprite(material);
     this.sprite.scale.set(config.scale, config.scale, 1);

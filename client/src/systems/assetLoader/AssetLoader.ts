@@ -166,21 +166,27 @@ function createMuzzleFlashFallbackTexture(variant: number): THREE.Texture {
 
   ctx.clearRect(0, 0, size, size);
 
-  const numSpikes = 3 + (variant % 4);
+  const isRoundVariant = variant % 5 === 3;
+  const numSpikes = isRoundVariant ? 3 : 3 + (variant % 4);
   const baseAngle = (variant * 0.37) * Math.PI;
+  const angleVariance = isRoundVariant ? 1.4 : 0.9;
+  const lenBase = isRoundVariant ? 0.35 : 0.2;
+  const lenRange = isRoundVariant ? 0.4 : 0.35;
+  const coreScale = isRoundVariant ? 0.75 : 1;
 
   for (let i = 0; i < numSpikes; i++) {
-    const angle = baseAngle + (i / numSpikes) * Math.PI * 2 + (rng() - 0.5) * 0.9;
-    const len = (0.2 + rng() * 0.35) * MUZZLE_FLASH_CONTENT_RADIUS;
-    const width = (0.12 + rng() * 0.14) * MUZZLE_FLASH_CONTENT_RADIUS;
+    const evenPart = isRoundVariant ? (i * 2.1 + rng() * 0.5) / numSpikes : i / numSpikes;
+    const angle = baseAngle + evenPart * Math.PI * 2 + (rng() - 0.5) * angleVariance;
+    const len = (lenBase + rng() * lenRange) * MUZZLE_FLASH_CONTENT_RADIUS;
+    const width = (0.1 + rng() * 0.18) * MUZZLE_FLASH_CONTENT_RADIUS;
     ctx.save();
     ctx.translate(center, center);
     ctx.rotate(angle);
     const grad = ctx.createLinearGradient(0, 0, len * size, 0);
-    grad.addColorStop(0, "rgba(255,155,70,0.78)");
-    grad.addColorStop(0.1, "rgba(255,125,45,0.72)");
-    grad.addColorStop(0.28, "rgba(240,95,30,0.48)");
-    grad.addColorStop(0.48, "rgba(210,70,18,0.22)");
+    grad.addColorStop(0, "rgba(255,130,45,0.78)");
+    grad.addColorStop(0.1, "rgba(255,105,35,0.74)");
+    grad.addColorStop(0.28, "rgba(240,80,25,0.5)");
+    grad.addColorStop(0.48, "rgba(210,60,15,0.24)");
     grad.addColorStop(0.68, "rgba(175,50,10,0.08)");
     grad.addColorStop(0.88, "rgba(140,35,6,0.02)");
     grad.addColorStop(1, "rgba(0,0,0,0)");
@@ -191,22 +197,23 @@ function createMuzzleFlashFallbackTexture(variant: number): THREE.Texture {
     ctx.restore();
   }
 
+  const coreR = maxR * coreScale;
   const coreGrad = ctx.createRadialGradient(
     center,
     center,
     0,
     center,
     center,
-    maxR
+    coreR
   );
-  coreGrad.addColorStop(0, "rgba(255,175,85,0.94)");
-  coreGrad.addColorStop(0.18, "rgba(255,140,55,0.82)");
-  coreGrad.addColorStop(0.42, "rgba(245,105,35,0.54)");
-  coreGrad.addColorStop(0.65, "rgba(210,75,22,0.2)");
+  coreGrad.addColorStop(0, "rgba(255,135,45,0.94)");
+  coreGrad.addColorStop(0.18, "rgba(255,110,35,0.84)");
+  coreGrad.addColorStop(0.42, "rgba(245,85,25,0.55)");
+  coreGrad.addColorStop(0.65, "rgba(210,60,18,0.22)");
   coreGrad.addColorStop(1, "rgba(0,0,0,0)");
   ctx.fillStyle = coreGrad;
   ctx.beginPath();
-  ctx.arc(center, center, maxR, 0, Math.PI * 2);
+  ctx.arc(center, center, coreR, 0, Math.PI * 2);
   ctx.fill();
 
   const imageData = ctx.getImageData(0, 0, size, size);
@@ -223,10 +230,10 @@ function createMuzzleFlashFallbackTexture(variant: number): THREE.Texture {
       const a = imageData.data[i + 3];
       if (a > 2) {
         const edgeFactor = 1 + (1 - a / 255) * 1.5;
-        const noise = (rng() - 0.5) * 75 * edgeFactor;
+        const noise = (rng() - 0.5) * 50 * edgeFactor;
         imageData.data[i] = Math.max(0, Math.min(255, imageData.data[i] + noise));
-        imageData.data[i + 1] = Math.max(0, Math.min(255, imageData.data[i + 1] + noise * 0.85));
-        imageData.data[i + 2] = Math.max(0, Math.min(255, imageData.data[i + 2] + noise * 0.25));
+        imageData.data[i + 1] = Math.max(0, Math.min(255, imageData.data[i + 1] + noise * 0.5));
+        imageData.data[i + 2] = Math.max(0, Math.min(255, imageData.data[i + 2] + noise * 0.12));
         imageData.data[i + 3] = Math.round(imageData.data[i + 3] * edgeFade);
       }
     }

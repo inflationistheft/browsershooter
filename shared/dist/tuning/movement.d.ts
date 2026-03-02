@@ -34,7 +34,7 @@ export declare const movementTuning: {
     readonly slideJumpMultiplier: 1.25;
     /** Cooldown in seconds before slide jump can be used again. */
     readonly slideJumpCooldown: 2;
-    /** Cooldown in seconds after slide ends before entering a new slide (prevents infinite re-entry while holding C). */
+    /** Cooldown in seconds after slide ends before entering a new slide (prevents infinite re-entry while holding Shift). */
     readonly slideEnterCooldown: 0.4;
     readonly wallBounceWindow: 0.2;
     readonly wallBounceReflectFactor: 0.85;

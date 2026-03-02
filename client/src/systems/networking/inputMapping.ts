@@ -32,6 +32,7 @@ export function inputStateToPlayerInput(
     jump: state.jump,
     slide: state.slide,
     slideIntentTicks: state.slideIntentTicks > 0 ? state.slideIntentTicks : undefined,
+    crouch: state.crouch,
     yaw: state.yaw,
     pitch: state.pitch,
     shoot: state.shoot,

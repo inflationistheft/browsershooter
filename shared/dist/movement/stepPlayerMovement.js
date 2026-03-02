@@ -83,7 +83,7 @@ export function stepPlayerMovement(state, input, dt, playerRadius) {
     }
     if (state.movementState === "airborne") {
         if (input.hasSlideIntent)
-            ext.slideOnLand = true;
+            ext.slideOnLand = true; // Shift held: slide on landing if fast enough
         const hor = Math.hypot(state.vx, state.vz);
         const horCap = ext.horSpeedWhenJumped;
         if (hor > horCap && horCap > 0) {
@@ -144,7 +144,7 @@ export function stepPlayerMovement(state, input, dt, playerRadius) {
         }
         return;
     }
-    const crouching = input.hasSlideIntent;
+    const crouching = input.crouch; // C only: crouch walk, no slide
     const speed = crouching ? t.maxSpeedCrouch : t.maxSpeedWalk;
     const cos = Math.cos(input.yaw);
     const sin = Math.sin(input.yaw);
