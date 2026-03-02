@@ -14,19 +14,15 @@ import type { ArenaState, PlayerStateSchema } from "shared";
 
 /** World offset (m) above head for anchor. */
 const ANCHOR_WORLD_OFFSET = 0.5;
-/** Bar size in pixels. */
+/** Bar: Länge wie früher, schlanker Rand, gestückelte Optik mit schwarzem Rand. */
 const BAR_WIDTH = 84;
 const BAR_HEIGHT = 10;
-/** State A: Shield active – bar shows Shield/MaxShield. */
+const SEGMENTS = 10;
+/** Wie HUD: Blau = Schild, Rot = Leben dahinter, Schwarz = tot. */
 const SHIELD_COLOR = "#4dd0e1";
-const SHIELD_CHIP_COLOR = "#2a9ca8";
-/** State B: Shield broken – bar shows Health/MaxHealth. */
 const HEALTH_COLOR = "#c62828";
-const HEALTH_CHIP_COLOR = "#9a1f1f";
-/** Shield state: bar track background – same red as health bar. */
-const SHIELD_TRACK_BG = HEALTH_COLOR;
-/** Health state: bar track background – last stand. */
-const HEALTH_TRACK_BG = "rgba(0,0,0,0.6)";
+const HEALTH_TRACK = "#9a1f1f";
+const DEAD_TRACK = "rgba(0,0,0,0.6)";
 /** Flash duration when shield breaks (s). */
 const SHIELD_BREAK_FLASH_MS = 80;
 const BAR_Y_OFFSET_PX = -14;
@@ -35,10 +31,6 @@ const SMOOTH_RATE = 22;
 /** Visibility fade times (s). */
 const FADE_IN_TIME = 0.06;
 const FADE_OUT_TIME = 0.18;
-/** Damage chip: delay before chip starts catching up (s). */
-const CHIP_DELAY = 0.1;
-/** Chip catch-up speed (0..1 per second). */
-const CHIP_CATCHUP_SPEED = 5;
 /** Max bars visible at once. */
 const MAX_BARS = 2;
 /** Safe area inset (px) - bars can go to edge. */
@@ -49,13 +41,10 @@ interface BarEntry {
   lastDamagedTime: number;
   lastDamagedMs: number;
   element: HTMLDivElement;
-  chipEl: HTMLDivElement;
-  fillEl: HTMLDivElement;
+  segments: HTMLDivElement[];
   smoothedScreenX: number;
   smoothedScreenY: number;
   visibilityAlpha: number;
-  chipValue: number;
-  chipDelayRemaining: number;
   prevShield: number;
   prevHealth: number;
   shieldBreakFlashUntil: number;
@@ -84,29 +73,28 @@ export function onPlayerHit(targetId: string): void {
     const wrap = document.createElement("div");
     wrap.style.cssText = `
       position: absolute;
+      display: flex;
+      gap: 1px;
       width: ${BAR_WIDTH}px;
       height: ${BAR_HEIGHT}px;
-      background: rgba(0,0,0,0.6);
+      background: rgba(0,0,0,0.5);
+      border: 1px solid rgba(0,0,0,0.85);
       border-radius: 2px;
-      overflow: hidden;
+      padding: 1px;
+      box-sizing: border-box;
       transform-origin: center center;
       opacity: 0;
     `;
-
-    const chip = document.createElement("div");
-    chip.style.cssText = `
-      position: absolute; left: 0; top: 0; bottom: 0;
-      width: 100%; background: ${SHIELD_CHIP_COLOR}; transition: none;
-    `;
-    wrap.appendChild(chip);
-
-    const fill = document.createElement("div");
-    fill.style.cssText = `
-      position: absolute; left: 0; top: 0; bottom: 0;
-      width: 0; background: ${SHIELD_COLOR}; transition: none;
-    `;
-    wrap.appendChild(fill);
-
+    const segmentEls: HTMLDivElement[] = [];
+    for (let i = 0; i < SEGMENTS; i++) {
+      const seg = document.createElement("div");
+      seg.style.cssText = `
+        flex: 1; min-width: 0; border-radius: 1px;
+        background: ${SHIELD_COLOR}; transition: background 0.12s ease;
+      `;
+      wrap.appendChild(seg);
+      segmentEls.push(seg);
+    }
     container.appendChild(wrap);
 
     entry = {
@@ -114,13 +102,10 @@ export function onPlayerHit(targetId: string): void {
       lastDamagedTime: 0,
       lastDamagedMs: 0,
       element: wrap,
-      chipEl: chip,
-      fillEl: fill,
+      segments: segmentEls,
       smoothedScreenX: 0,
       smoothedScreenY: 0,
       visibilityAlpha: 0,
-      chipValue: 1,
-      chipDelayRemaining: 0,
       prevShield: MAX_SHIELD,
       prevHealth: MAX_HEALTH,
       shieldBreakFlashUntil: 0,
@@ -223,49 +208,27 @@ export function updatePlayerHealthBars(
     const shield = (player as { shield?: number }).shield ?? 0;
     const maxShield = (player as { maxShield?: number }).maxShield ?? MAX_SHIELD;
     const isShieldState = shield > 0;
-
-    const fillRatio = isShieldState
-      ? shield / maxShield
-      : player.health / player.maxHealth;
+    const current = isShieldState ? shield : player.health;
+    const maximum = isShieldState ? maxShield : player.maxHealth;
+    const fillRatio = maximum > 0 ? current / maximum : 0;
+    const filledSegments = Math.round(fillRatio * SEGMENTS);
+    const barColor = isShieldState ? SHIELD_COLOR : HEALTH_COLOR;
+    const trackColor = isShieldState ? HEALTH_TRACK : DEAD_TRACK;
 
     entry.element.style.background = isShieldState
-      ? SHIELD_TRACK_BG
-      : HEALTH_TRACK_BG;
-    entry.fillEl.style.background = isShieldState ? SHIELD_COLOR : HEALTH_COLOR;
-    entry.fillEl.style.width = `${fillRatio * 100}%`;
-    entry.chipEl.style.background = isShieldState
-      ? SHIELD_CHIP_COLOR
-      : HEALTH_CHIP_COLOR;
+      ? "rgba(0,0,0,0.5)"
+      : "rgba(0,0,0,0.5)";
+    for (let i = 0; i < SEGMENTS; i++) {
+      const seg = entry.segments[i];
+      if (seg) seg.style.background = i < filledSegments ? barColor : trackColor;
+    }
 
     const shieldBroke = entry.prevShield > 0 && shield === 0;
     if (shieldBroke) {
       entry.shieldBreakFlashUntil = now * 1000 + SHIELD_BREAK_FLASH_MS;
-      entry.chipValue = fillRatio;
-      entry.chipDelayRemaining = 0;
-    }
-
-    const tookDamage = isShieldState
-      ? shield < entry.prevShield
-      : player.health < entry.prevHealth;
-    const prevRatio = entry.prevShield > 0
-      ? entry.prevShield / maxShield
-      : entry.prevHealth / player.maxHealth;
-    if (tookDamage) {
-      entry.chipValue = prevRatio;
-      entry.chipDelayRemaining = CHIP_DELAY;
     }
     entry.prevShield = shield;
     entry.prevHealth = player.health;
-
-    if (entry.chipDelayRemaining > 0) {
-      entry.chipDelayRemaining -= dt;
-    } else if (entry.chipValue > fillRatio) {
-      entry.chipValue = Math.max(
-        fillRatio,
-        entry.chipValue - CHIP_CATCHUP_SPEED * dt
-      );
-    }
-    entry.chipEl.style.width = `${Math.max(0, Math.min(1, entry.chipValue)) * 100}%`;
 
     const flashing = now * 1000 < entry.shieldBreakFlashUntil;
     entry.element.style.boxShadow = flashing

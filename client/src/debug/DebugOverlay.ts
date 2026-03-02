@@ -13,6 +13,7 @@ export function createDebugOverlay(container: HTMLElement): void {
   const el = document.createElement("div");
   el.id = "debug-overlay";
   el.style.cssText = `
+    display: none;
     position: fixed; top: 8px; right: 8px; color: #8f8; font-family: monospace; font-size: 12px;
     background: rgba(0,0,0,0.6); padding: 8px; border-radius: 4px;
   `;
@@ -44,12 +45,15 @@ export function updateDebugOverlay(
 
   const el = document.getElementById("debug-overlay");
   if (el) {
+    el.style.display = debugMode ? "block" : "none";
+    if (!debugMode) return;
+
     const sprintStr = sprint !== undefined ? ` | Sprint: ${sprint}` : "";
     let netStr = "";
     if (netInfo !== undefined) {
       netStr = ` | Net: ${netInfo.connected ? "ok" : "off"} | In room: ${netInfo.playerCount}`;
     }
-    const debugStr = debugMode ? " | [B] Debug: ON" : "";
+    const debugStr = " | [B] Debug: ON";
     const hitStr =
       hitAngle !== undefined && hitAngle !== null
         ? ` | Hit: ${hitAngle.toFixed(0)}°`

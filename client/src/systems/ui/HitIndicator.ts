@@ -8,18 +8,18 @@ import * as THREE from "three";
 
 /** Total lifetime (s) including fade. */
 const FADE_DURATION = 1.0;
-/** Wedge arc width in degrees. */
-const WEDGE_DEG = 45;
+/** Wedge arc width in degrees (narrower = thinner segment). */
+const WEDGE_DEG = 26;
 /** Max active indicators (stack rapid hits). */
 const MAX_INDICATORS = 4;
 /** Color - bright red. */
 const INDICATOR_COLOR = "#e53935";
-/** Ring inner edge: hole for crosshair (larger = ring further out). */
-const RING_INNER_PCT = 36;
-/** Ring outer edge. Ring width = outer - inner. */
-const RING_OUTER_PCT = 44;
-/** Ring size - square that contains the ring, in vmin. */
-const RING_SIZE_VMIN = 40;
+/** Ring inner edge: hole for crosshair (larger = ring further from center). */
+const RING_INNER_PCT = 60;
+/** Ring outer edge. Ring width = outer - inner (narrow ring). */
+const RING_OUTER_PCT = 63;
+/** Ring size - square that contains the ring, in vmin (larger = further from crosshair). */
+const RING_SIZE_VMIN = 52;
 /** z-index: above canvas, below crosshair. */
 const Z_INDEX = 9995;
 /** Debug log throttle (s). */
@@ -134,13 +134,14 @@ export function onHitReceived(dirX: number, dirY: number, dirZ: number): void {
       transparent ${RING_OUTER_PCT}%
     );
   `;
-  const arrowSize = 16;
-  const outerEdgePct = 19;
+  const arrowSize = 6;
+  /** Arrow base on ring outer edge. radial-gradient default is farthest-corner, so 63% radius ≈ 44.6% of half-side → outer edge at ~5.5% from wrapper top. */
+  const arrowTopPct = 5.5;
   const arrow = document.createElement("div");
   arrow.style.cssText = `
     position: absolute;
     left: 50%;
-    top: calc(${outerEdgePct}% - ${arrowSize}px);
+    top: calc(${arrowTopPct}% - ${arrowSize}px);
     width: 0;
     height: 0;
     margin-left: -${arrowSize}px;

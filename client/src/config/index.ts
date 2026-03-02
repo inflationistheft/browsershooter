@@ -70,6 +70,7 @@ export interface PovMovementTuning {
   reloadPullback?: number;
   reloadPitchDown?: number;
   reloadRoll?: number;
+  reloadYaw?: number;
   reloadOvershoot?: number;
   swayReloadReduce?: number;
   idleReloadReduce?: number;
@@ -216,12 +217,13 @@ export const clientConfig = {
       slideOutTau: 0.28,
       bobCrouchFreqMultiplier: 1,
       bobCrouchAmpMultiplier: 1,
-      // Reload override (Tilt&Lower -> Hold -> Return)
+      // Reload override (Tilt&Lower -> Hold -> Return). Slight outward roll + yaw right so it reads different from slide.
       reloadYOffset: -0.12,
       reloadZOffset: 0.12,
       reloadPullback: 0.06,
       reloadPitchDown: -0.3,
-      reloadRoll: 0.4,
+      reloadRoll: -0.14,
+      reloadYaw: 0.18,
       reloadOvershoot: 0.08,
       swayReloadReduce: 0.8,
       idleReloadReduce: 0.4,

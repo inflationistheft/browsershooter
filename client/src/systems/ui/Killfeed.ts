@@ -1,5 +1,6 @@
 import type { Room } from "colyseus.js";
 import type { ArenaState, KillEventPayload, WeaponId } from "shared";
+import { formatDisplayName } from "../../utils/displayName.js";
 
 const MAX_ENTRIES = 5;
 const VISIBLE_MS = 7000;
@@ -29,7 +30,7 @@ export function createKillfeed(parent: HTMLElement): void {
   const root = document.createElement("div");
   root.id = "killfeed";
   root.style.cssText =
-    "position:fixed;top:80px;right:40px;pointer-events:none;z-index:9999;" +
+    "position:fixed;top:32px;right:32px;pointer-events:none;z-index:9999;" +
     "display:flex;flex-direction:column;gap:6px;align-items:flex-end;font-family:system-ui,sans-serif;";
   parent.appendChild(root);
   container = root;
@@ -134,8 +135,7 @@ export function updateKillfeed(dt: number): void {
 
 function resolvePlayerLabel(id: string, nameFromState?: string): string {
   const base = nameFromState && nameFromState.trim().length > 0 ? nameFromState : id;
-  if (base.length <= 8) return base;
-  return base.slice(0, 4) + "…" + base.slice(-3);
+  return formatDisplayName(base);
 }
 
 function mapWeaponToIcon(_weaponId: WeaponId): string {

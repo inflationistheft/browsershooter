@@ -23,6 +23,16 @@ import {
   updateHitIndicators,
 } from "./systems/ui/HitIndicator.js";
 import {
+  createScreenDamageFeedback,
+  updateScreenDamageFeedback,
+} from "./systems/ui/ScreenDamageFeedback.js";
+import {
+  createCrosshairHitFeedback,
+  triggerCrosshairHit,
+  triggerCrosshairKill,
+  updateCrosshairHitFeedback,
+} from "./systems/ui/CrosshairHitFeedback.js";
+import {
   createLoadingScreen,
   setLoadingMessage,
   hideLoadingScreen,
@@ -148,6 +158,8 @@ if (tunerParam === "1") {
   createPlayerHealthBars(app);
   createHitIndicator(app);
   createKillfeed(app);
+  createScreenDamageFeedback(app);
+  createCrosshairHitFeedback(app);
   if (clientConfig.debugOverlay) createDebugOverlay(app);
 
   enum UiState {
@@ -496,12 +508,19 @@ if (tunerParam === "1") {
       const room = netClient.getRoom();
       const localPlayer = room ? room.state.players.get(room.sessionId) : null;
       const shield = (localPlayer as { shield?: number })?.shield ?? MAX_SHIELD;
+      const maxShield = (localPlayer as { maxShield?: number })?.maxShield ?? MAX_SHIELD;
       const hp = localPlayer?.health ?? MAX_HEALTH;
+      const maxHealth = localPlayer?.maxHealth ?? MAX_HEALTH;
       const ammo = localPlayer?.ammo ?? WEAPON_STUB.ammo;
       const maxAmmo = localPlayer?.maxAmmo ?? WEAPON_STUB.maxAmmo;
-      updateHUD(shield, hp, ammo, maxAmmo, debugMode);
+      const playerName = (localPlayer?.id && localPlayer.id.trim().length > 0)
+        ? localPlayer.id
+        : room?.sessionId ?? "Player";
+      updateHUD(shield, maxShield, hp, maxHealth, ammo, maxAmmo, playerName, debugMode);
+      updateScreenDamageFeedback(dt, shield, MAX_SHIELD, hp, MAX_HEALTH);
       updateHitIndicators(snap.yaw, snap.pitch, dt, debugMode);
       updateKillfeed(dt);
+      updateCrosshairHitFeedback(dt);
       if (clientConfig.debugOverlay) {
         const netInfo =
           room !== null
@@ -538,6 +557,7 @@ if (tunerParam === "1") {
         remotePlayerSync.setup(room);
         room.onMessage("hit", (payload: { targetId: string }) => {
           onPlayerHit(payload.targetId);
+          triggerCrosshairHit();
         });
         room.onMessage(
           "hitReceived",
@@ -547,6 +567,9 @@ if (tunerParam === "1") {
         );
         room.onMessage("kill", (payload: KillEventPayload) => {
           handleKillEvent(room, payload);
+          if (room.sessionId === payload.killerId) {
+            triggerCrosshairKill();
+          }
         });
         await remotePlayerSync.waitForLocalSpawnAndSync(room);
       }

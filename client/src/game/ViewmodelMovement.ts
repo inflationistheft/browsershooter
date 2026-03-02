@@ -372,13 +372,15 @@ export function updateViewmodelMovement(
   const reloadZOffset = cfg.reloadZOffset ?? 0.12;
   const reloadPullback = cfg.reloadPullback ?? 0.06;
   const reloadPitchDown = cfg.reloadPitchDown ?? -0.3;
-  const reloadRoll = cfg.reloadRoll ?? 0.4;
+  const reloadRoll = cfg.reloadRoll ?? -0.14;
+  const reloadYaw = cfg.reloadYaw ?? 0.18;
 
   const reloadY = reloadPoseBlend * reloadYOffset;
   const reloadZ = reloadPoseBlend * reloadZOffset;
   const reloadPull = reloadPoseBlend * reloadPullback;
   const reloadPitch = reloadPoseBlend * reloadPitchDown;
   const reloadRollZ = reloadPoseBlend * reloadRoll;
+  const reloadYawY = reloadPoseBlend * reloadYaw;
 
   // --- Idle breathing: slow, organic, not pure sinus ---
   state.idleTime += dt;
@@ -413,7 +415,7 @@ export function updateViewmodelMovement(
   );
   state._targetRot.set(
     state.swayPitch + state.recoilPitch + bobPitch + idlePitch + slidePitch + reloadPitch,
-    state.swayYaw,
+    state.swayYaw + reloadYawY,
     slideRotZ + reloadRollZ + state.recoilRoll + bobRoll + state.strafeLeanRoll + idleRoll + landingRoll,
     "YXZ"
   );
@@ -492,7 +494,8 @@ const DEFAULT_POV_MOVEMENT = {
   reloadZOffset: 0.12,
   reloadPullback: 0.06,
   reloadPitchDown: -0.3,
-  reloadRoll: 0.4,
+  reloadRoll: -0.14,
+  reloadYaw: 0.18,
   reloadOvershoot: 0.08,
   swayReloadReduce: 0.8,
   idleReloadReduce: 0.4,
