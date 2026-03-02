@@ -71,6 +71,22 @@ export const clientConfig = {
   thirdPersonWeaponRotationX: 0.19,
   thirdPersonWeaponRotationY: 3.16,
   thirdPersonWeaponRotationZ: 1.45,
+  /** Client-side tuning (no functional change to gameplay – server is authoritative). */
+  tuning: {
+    /** Crouch eye-height transition: 1 - exp(-dt/TAU). ~120ms to 95%. */
+    crouchTransitionTau: 0.04,
+    /** Remote player interpolation: 1 - exp(-dt/TAU). ~100ms to 95% of target. */
+    remoteInterpTau: 0.05,
+    /** Distance (m) before applying strong reconciliation correction. */
+    reconcileThreshold: 0.05,
+    /** Blend factor when reconciling (higher = faster correction). */
+    reconcileLerp: 0.5,
+    /** Minimal distance (m) to trigger any correction (avoids jitter). */
+    reconcileMin: 0.01,
+    /** Blend factor for gentle correction when below threshold. */
+    reconcileLerpGentle: 0.15,
+  },
+
   /** Per-animation overrides for 3P weapon (slide, jump, etc. have different hand poses). */
   thirdPersonWeaponOffsets: {
     walkBackwards: { x: 0, y: 0, z: 0, rotX: 0.09, rotY: 3.39, rotZ: 1.45, scale: 1 },

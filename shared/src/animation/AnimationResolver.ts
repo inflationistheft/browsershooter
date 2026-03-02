@@ -19,7 +19,9 @@ export const ANIMATION_CLIP_IDS = {
   idle: "idle",
   walk: "walk",
   walkBackwards: "walkBackwards",
+  /** Unused by resolver – strafeLeftFast used for all sideways movement. Kept for GLB compatibility. */
   strafeLeft: "strafeLeft",
+  /** Unused by resolver – strafeRightFast used for all sideways movement. Kept for GLB compatibility. */
   strafeRight: "strafeRight",
   strafeLeftFast: "strafeLeftFast",
   strafeRightFast: "strafeRightFast",

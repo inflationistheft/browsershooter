@@ -2,12 +2,14 @@
  * FFA Arena room: tick loop, state sync, placeholder movement.
  */
 import { Room } from "@colyseus/core";
-import { movementTuning, resolveArenaWalls, applyWallVelocitySlide, rayArenaIntersection, resolveAnimationClipId, TICK_RATE, PLAYER_RADIUS, PLAYER_EYE_HEIGHT, CROUCH_EYE_HEIGHT, HITSCAN_RANGE, HITSCAN_BODY_DAMAGE, HITSCAN_HEAD_MULTIPLIER, SHOT_INTERVAL_TICKS, RELOAD_TICKS, REGEN_DELAY_TICKS, SHIELD_REGEN_PER_SEC, HEALTH_REGEN_PER_SEC, MAX_SHIELD, MAX_HEALTH, RESPAWN_DELAY_SEC, HEAD_HITBOX_HEIGHT, HEAD_HITBOX_RADIUS, BODY_CAPSULE_TOP, BODY_CAPSULE_RADIUS, BODY_CAPSULE_TOP_EXTEND, raySphereIntersection, rayCapsuleIntersection, DEBUG_HEAD_ONLY, } from "shared";
+import { rayArenaIntersection, resolveAnimationClipId, TICK_RATE, PLAYER_RADIUS, PLAYER_EYE_HEIGHT, CROUCH_EYE_HEIGHT, HITSCAN_RANGE, HITSCAN_BODY_DAMAGE, HITSCAN_HEAD_MULTIPLIER, SHOT_INTERVAL_TICKS, RELOAD_TICKS, REGEN_DELAY_TICKS, SHIELD_REGEN_PER_SEC, HEALTH_REGEN_PER_SEC, MAX_SHIELD, MAX_HEALTH, RESPAWN_DELAY_SEC, HEAD_HITBOX_HEIGHT, HEAD_HITBOX_RADIUS, BODY_CAPSULE_TOP, BODY_CAPSULE_RADIUS, BODY_CAPSULE_TOP_EXTEND, raySphereIntersection, rayCapsuleIntersection, DEBUG_HEAD_ONLY, stepPlayerMovement, tickMovementTimers, } from "shared";
 import { ArenaState, PlayerStateSchema } from "shared";
 import { serverConfig } from "../config/index.js";
+import { createPlayerExtendedState, } from "../PlayerExtendedState.js";
 export class ArenaFFARoom extends Room {
     constructor() {
         super(...arguments);
+        this.playerExt = new Map();
         this._tickCount = 0;
     }
     onCreate() {
@@ -32,6 +34,7 @@ export class ArenaFFARoom extends Room {
         [-8, 0, -8],
     ]; }
     onJoin(client) {
+        this.playerExt.set(client.sessionId, createPlayerExtendedState());
         const idx = Math.floor(Math.random() * ArenaFFARoom.SPAWN_OFFSETS.length);
         const [sx, sy, sz] = ArenaFFARoom.SPAWN_OFFSETS[idx];
         const state = new PlayerStateSchema();
@@ -49,34 +52,36 @@ export class ArenaFFARoom extends Room {
         console.log(`[ArenaFFA] Client ${client.sessionId} joined. Players in room: ${this.state.players.size}`);
     }
     onLeave(client) {
+        this.playerExt.delete(client.sessionId);
         this.state.players.delete(client.sessionId);
         console.log(`[ArenaFFA] Client ${client.sessionId} left. Players in room: ${this.state.players.size}`);
     }
     onInput(client, message) {
-        const player = this.state.players.get(client.sessionId);
-        if (!player)
+        const ext = this.playerExt.get(client.sessionId);
+        if (!ext)
             return;
         const input = message;
-        const ext = player;
-        ext._lastInput = input;
+        ext.lastInput = input;
         if (input.shoot === true)
-            ext._pendingShoot = true;
+            ext.pendingShoot = true;
     }
     tick(_dt) {
         this._tickCount++;
-        const t = movementTuning;
         const dtSec = serverConfig.tickMs / 1000;
-        const GROUND_Y = 0;
         const RESPAWN_TICKS = Math.ceil(RESPAWN_DELAY_SEC * TICK_RATE);
         this.state.players.forEach((player, shooterId) => {
-            const ext = player;
-            const lastInput = ext._lastInput;
+            let ext = this.playerExt.get(shooterId);
+            if (!ext) {
+                ext = createPlayerExtendedState();
+                this.playerExt.set(shooterId, ext);
+            }
+            const lastInput = ext.lastInput;
             if (player.health <= 0) {
-                if (ext._respawnTicks === undefined) {
-                    ext._respawnTicks = RESPAWN_TICKS;
+                if (ext.respawnTicks === undefined) {
+                    ext.respawnTicks = RESPAWN_TICKS;
                 }
-                ext._respawnTicks--;
-                if (ext._respawnTicks <= 0) {
+                ext.respawnTicks--;
+                if (ext.respawnTicks <= 0) {
                     const idx = Math.floor(Math.random() * ArenaFFARoom.SPAWN_OFFSETS.length);
                     const [sx, sy, sz] = ArenaFFARoom.SPAWN_OFFSETS[idx];
                     player.shield = player.maxShield;
@@ -90,37 +95,62 @@ export class ArenaFFARoom extends Room {
                     player.ammo = player.maxAmmo;
                     player.movementState = "grounded";
                     player.animationState = "idle";
-                    ext._respawnTicks = undefined;
-                    ext._sprintWarmupTime = 0;
-                    ext._sprintReleaseGrace = 0;
-                    ext._slideTime = undefined;
-                    ext._slideJumpCooldownTimer = undefined;
-                    ext._slideEnterCooldownTimer = undefined;
-                    ext._slideOnLand = false;
+                    ext.respawnTicks = undefined;
+                    ext.slideTime = undefined;
+                    ext.slideJumpCooldownTimer = undefined;
+                    ext.slideEnterCooldownTimer = undefined;
+                    ext.slideOnLand = false;
                 }
                 return;
             }
-            if (ext._slideJumpCooldownTimer !== undefined && ext._slideJumpCooldownTimer > 0) {
-                ext._slideJumpCooldownTimer -= dtSec;
+            const movementExt = {
+                get slideTime() {
+                    return ext.slideTime ?? 0;
+                },
+                set slideTime(v) {
+                    ext.slideTime = v;
+                },
+                get slideEnterCooldownTimer() {
+                    return ext.slideEnterCooldownTimer ?? 0;
+                },
+                set slideEnterCooldownTimer(v) {
+                    ext.slideEnterCooldownTimer = v;
+                },
+                get slideJumpCooldownTimer() {
+                    return ext.slideJumpCooldownTimer ?? 0;
+                },
+                set slideJumpCooldownTimer(v) {
+                    ext.slideJumpCooldownTimer = v;
+                },
+                get slideOnLand() {
+                    return ext.slideOnLand ?? false;
+                },
+                set slideOnLand(v) {
+                    ext.slideOnLand = v;
+                },
+                get horSpeedWhenJumped() {
+                    return ext.horSpeedWhenJumped ?? 0;
+                },
+                set horSpeedWhenJumped(v) {
+                    ext.horSpeedWhenJumped = v;
+                },
+            };
+            tickMovementTimers(movementExt, dtSec);
+            if (ext.shootCooldownTicks !== undefined && ext.shootCooldownTicks > 0) {
+                ext.shootCooldownTicks--;
             }
-            if (ext._slideEnterCooldownTimer !== undefined && ext._slideEnterCooldownTimer > 0) {
-                ext._slideEnterCooldownTimer -= dtSec;
-            }
-            if (ext._shootCooldownTicks !== undefined && ext._shootCooldownTicks > 0) {
-                ext._shootCooldownTicks--;
-            }
-            if (ext._reloadTicks !== undefined && ext._reloadTicks > 0) {
-                ext._reloadTicks--;
-                if (ext._reloadTicks === 0) {
+            if (ext.reloadTicks !== undefined && ext.reloadTicks > 0) {
+                ext.reloadTicks--;
+                if (ext.reloadTicks === 0) {
                     player.ammo = player.maxAmmo;
                 }
             }
             else if (lastInput?.reload && player.ammo < player.maxAmmo) {
-                ext._reloadTicks = RELOAD_TICKS;
+                ext.reloadTicks = RELOAD_TICKS;
             }
             if (player.shield < player.maxShield ||
                 player.health < player.maxHealth) {
-                const lastDamageTick = ext._lastDamageTick ?? 0;
+                const lastDamageTick = ext.lastDamageTick ?? 0;
                 if (this._tickCount - lastDamageTick >= REGEN_DELAY_TICKS) {
                     if (player.shield < player.maxShield) {
                         player.shield = Math.min(player.maxShield, player.shield + SHIELD_REGEN_PER_SEC * dtSec);
@@ -136,160 +166,38 @@ export class ArenaFFARoom extends Room {
                 if (lastInput.pitch !== undefined)
                     player.pitch = lastInput.pitch;
                 ArenaFFARoom.storeHitboxPositionsIfValid(player, ext, lastInput);
-                const grounded = player.movementState === "grounded";
-                const sliding = player.movementState === "sliding";
-                if (sliding) {
-                    const extSlide = ext;
-                    extSlide._slideTime = (extSlide._slideTime ?? 0) + dtSec;
-                    const hor = Math.hypot(player.vx, player.vz);
-                    player.vx *= t.slideDecay;
-                    player.vz *= t.slideDecay;
-                    player.vy -= t.gravity * dtSec;
-                    player.vy = Math.max(player.vy, -t.maxFallSpeed);
-                    player.x += player.vx * dtSec;
-                    player.y += player.vy * dtSec;
-                    player.z += player.vz * dtSec;
-                    if (player.y <= GROUND_Y) {
-                        player.y = GROUND_Y;
-                        player.vy = 0;
-                    }
-                    const wallSlide = resolveArenaWalls(player.x, player.z, PLAYER_RADIUS);
-                    player.x = wallSlide.x;
-                    player.z = wallSlide.z;
-                    const velSlide = { x: player.vx, z: player.vz };
-                    applyWallVelocitySlide(velSlide, wallSlide);
-                    player.vx = velSlide.x;
-                    player.vz = velSlide.z;
-                    const cos = Math.cos(player.yaw);
-                    const sin = Math.sin(player.yaw);
-                    const inputWorldX = (lastInput.moveX ?? 0) * cos - (lastInput.moveZ ?? 0) * sin;
-                    const inputWorldZ = -((lastInput.moveX ?? 0) * sin + (lastInput.moveZ ?? 0) * cos);
-                    const inputMag = Math.hypot(inputWorldX, inputWorldZ);
-                    const inputCancelsSlide = inputMag > 0.1 &&
-                        hor > 0.1 &&
-                        (inputWorldX * player.vx + inputWorldZ * player.vz) / (inputMag * hor) < 0.5;
-                    if (inputCancelsSlide) {
-                        player.movementState = "grounded";
-                        ext._slideEnterCooldownTimer = t.slideEnterCooldown;
-                    }
-                    else {
-                        const stillSliding = hor >= t.slideMinSpeed &&
-                            (extSlide._slideTime ?? 0) < t.slideDurationMax &&
-                            player.y <= GROUND_Y + 0.01;
-                        const canSlideJump = (extSlide._slideJumpCooldownTimer ?? 0) <= 0;
-                        if (lastInput.jump && stillSliding && canSlideJump) {
-                            const mult = t.slideJumpMultiplier;
-                            player.vy = t.jumpForce * mult;
-                            player.vx *= mult;
-                            player.vz *= mult;
-                            player.movementState = "airborne";
-                            extSlide._slideJumpCooldownTimer = t.slideJumpCooldown;
-                            ext._horSpeedWhenJumped = Math.hypot(player.vx, player.vz);
-                        }
-                        else if (!stillSliding) {
-                            player.movementState = player.y <= GROUND_Y + 0.01 ? "grounded" : "airborne";
-                            ext._slideEnterCooldownTimer = t.slideEnterCooldown;
-                        }
-                    }
-                }
-                else if (grounded) {
-                    const horSpeed = Math.hypot(player.vx, player.vz);
-                    const slideEnterCooldownOk = (ext._slideEnterCooldownTimer ?? 0) <= 0;
-                    const canGroundSlide = (lastInput.slide ?? false) &&
-                        slideEnterCooldownOk &&
-                        horSpeed >= t.slideEnterSpeed;
-                    if (canGroundSlide) {
-                        player.movementState = "sliding";
-                        ext._slideTime = 0;
-                        const hor = Math.hypot(player.vx, player.vz);
-                        const boost = Math.max(hor * t.slideSpeedBoost, t.slideInitialSpeed);
-                        if (hor > 0) {
-                            player.vx = (player.vx / hor) * boost;
-                            player.vz = (player.vz / hor) * boost;
-                        }
-                    }
-                    else {
-                        const crouching = lastInput.slide ?? false;
-                        const speed = crouching ? t.maxSpeedCrouch : t.maxSpeedWalk;
-                        const accel = t.accel;
-                        const cos = Math.cos(player.yaw);
-                        const sin = Math.sin(player.yaw);
-                        const ax = ((lastInput.moveX ?? 0) * cos - (lastInput.moveZ ?? 0) * sin) * accel * dtSec;
-                        const az = (-(lastInput.moveX ?? 0) * sin - (lastInput.moveZ ?? 0) * cos) * accel * dtSec;
-                        player.vx += ax;
-                        player.vz += az;
-                        player.vx *= Math.max(0, 1 - t.friction * dtSec);
-                        player.vz *= Math.max(0, 1 - t.friction * dtSec);
-                        const hor = Math.hypot(player.vx, player.vz);
-                        if (hor > speed) {
-                            player.vx *= speed / hor;
-                            player.vz *= speed / hor;
-                        }
-                        if (lastInput.jump) {
-                            player.vy = t.jumpForce;
-                            ext._horSpeedWhenJumped = Math.hypot(player.vx, player.vz);
-                            player.movementState = "airborne";
-                        }
-                        else {
-                            player.vy = 0;
-                        }
-                    }
-                }
-                else {
-                    if (lastInput.slide ?? false)
-                        ext._slideOnLand = true;
-                    player.vy -= t.gravity * dtSec;
-                    player.vy = Math.max(player.vy, -t.maxFallSpeed);
-                    // Preserve horizontal speed from jump; no air acceleration
-                    const hor = Math.hypot(player.vx, player.vz);
-                    const horCap = ext._horSpeedWhenJumped ?? 0;
-                    if (hor > horCap && horCap > 0) {
-                        player.vx *= horCap / hor;
-                        player.vz *= horCap / hor;
-                    }
-                }
-                if (!sliding) {
-                    player.x += player.vx * dtSec;
-                    player.y += player.vy * dtSec;
-                    player.z += player.vz * dtSec;
-                    if (player.y <= GROUND_Y) {
-                        player.y = GROUND_Y;
-                        player.vy = 0;
-                        const horLand = Math.hypot(player.vx, player.vz);
-                        if (ext._slideOnLand && horLand >= t.slideEnterSpeed) {
-                            player.movementState = "sliding";
-                            ext._slideTime = 0;
-                            ext._slideJumpCooldownTimer = 0;
-                            const boost = Math.max(horLand * t.slideSpeedBoost, t.slideInitialSpeed);
-                            if (horLand > 0) {
-                                player.vx = (player.vx / horLand) * boost;
-                                player.vz = (player.vz / horLand) * boost;
-                            }
-                        }
-                        else if (player.movementState !== "sliding") {
-                            player.movementState = "grounded";
-                        }
-                        ext._slideOnLand = false;
-                    }
-                    else {
-                        if (ext._horSpeedWhenJumped === undefined) {
-                            ext._horSpeedWhenJumped = Math.hypot(player.vx, player.vz);
-                        }
-                        player.movementState = "airborne";
-                    }
-                    const wall = resolveArenaWalls(player.x, player.z, PLAYER_RADIUS);
-                    player.x = wall.x;
-                    player.z = wall.z;
-                    const vel = { x: player.vx, z: player.vz };
-                    applyWallVelocitySlide(vel, wall);
-                    player.vx = vel.x;
-                    player.vz = vel.z;
-                }
+                const hasSlideIntent = (lastInput.slide ?? false) || (lastInput.slideIntentTicks ?? 0) > 0;
+                const movementInput = {
+                    moveX: lastInput.moveX ?? 0,
+                    moveZ: lastInput.moveZ ?? 0,
+                    jump: lastInput.jump ?? false,
+                    hasSlideIntent,
+                    yaw: player.yaw,
+                    pitch: player.pitch,
+                };
+                const movementState = {
+                    x: player.x,
+                    y: player.y,
+                    z: player.z,
+                    vx: player.vx,
+                    vy: player.vy,
+                    vz: player.vz,
+                    movementState: player.movementState,
+                    ext: movementExt,
+                };
+                stepPlayerMovement(movementState, movementInput, dtSec, PLAYER_RADIUS);
+                player.x = movementState.x;
+                player.y = movementState.y;
+                player.z = movementState.z;
+                player.vx = movementState.vx;
+                player.vy = movementState.vy;
+                player.vz = movementState.vz;
+                player.movementState = movementState.movementState;
                 const animId = resolveAnimationClipId({
                     moveX: lastInput.moveX ?? 0,
                     moveZ: lastInput.moveZ ?? 0,
                     sprint: lastInput.sprint ?? false,
-                    crouching: player.movementState === "sliding" || (lastInput.slide ?? false),
+                    crouching: player.movementState === "sliding" || hasSlideIntent,
                     movementState: player.movementState,
                 });
                 player.animationState = animId;
@@ -299,19 +207,19 @@ export class ArenaFFARoom extends Room {
             else {
                 player.animationState = "idle";
             }
-            const shouldShoot = (lastInput?.shoot ?? false) || (ext._pendingShoot ?? false);
+            const shouldShoot = (lastInput?.shoot ?? false) || (ext.pendingShoot ?? false);
             const infiniteAmmo = (lastInput?.debugMode ?? false) ||
                 process.env.DEBUG_INFINITE_AMMO === "1" ||
                 process.env.DEBUG_HITSCAN === "1";
-            const shootCooldownOk = ext._shootCooldownTicks === undefined || ext._shootCooldownTicks <= 0;
+            const shootCooldownOk = ext.shootCooldownTicks === undefined || ext.shootCooldownTicks <= 0;
             if (shouldShoot &&
                 (player.ammo > 0 || infiniteAmmo) &&
-                (ext._reloadTicks === undefined || ext._reloadTicks <= 0) &&
+                (ext.reloadTicks === undefined || ext.reloadTicks <= 0) &&
                 shootCooldownOk) {
                 if (!infiniteAmmo)
                     player.ammo--;
-                ext._pendingShoot = false;
-                ext._shootCooldownTicks = SHOT_INTERVAL_TICKS;
+                ext.pendingShoot = false;
+                ext.shootCooldownTicks = SHOT_INTERVAL_TICKS;
                 const crouching = player.movementState === "grounded" && (lastInput?.slide ?? false);
                 const hitResult = this.hitscanRaycast(shooterId, player, crouching, lastInput);
                 if (hitResult) {
@@ -327,8 +235,9 @@ export class ArenaFFARoom extends Room {
                         else {
                             target.health = Math.max(0, target.health - baseDamage);
                         }
-                        target._lastDamageTick =
-                            this._tickCount;
+                        const hitTargetExt = this.playerExt.get(hitResult.targetId);
+                        if (hitTargetExt)
+                            hitTargetExt.lastDamageTick = this._tickCount;
                         const actualDamage = baseDamage;
                         const shooterClient = Array.from(this.clients).find((c) => c.sessionId === shooterId);
                         if (shooterClient) {
@@ -420,21 +329,21 @@ export class ArenaFFARoom extends Room {
             return;
         if (fy > py + 0.5)
             return;
-        ext._headX = rootX + hx;
-        ext._headY = rootY + hy;
-        ext._headZ = rootZ + hz;
-        ext._bodyCenterX = rootX + bcx;
-        ext._bodyCenterY = rootY + bcy;
-        ext._bodyCenterZ = rootZ + bcz;
-        ext._spineTopX = rootX + stx;
-        ext._spineTopY = rootY + sty;
-        ext._spineTopZ = rootZ + stz;
-        ext._pelvisX = rootX + px;
-        ext._pelvisY = rootY + py;
-        ext._pelvisZ = rootZ + pz;
-        ext._feetX = rootX + fx;
-        ext._feetY = rootY + fy;
-        ext._feetZ = rootZ + fz;
+        ext.headX = rootX + hx;
+        ext.headY = rootY + hy;
+        ext.headZ = rootZ + hz;
+        ext.bodyCenterX = rootX + bcx;
+        ext.bodyCenterY = rootY + bcy;
+        ext.bodyCenterZ = rootZ + bcz;
+        ext.spineTopX = rootX + stx;
+        ext.spineTopY = rootY + sty;
+        ext.spineTopZ = rootZ + stz;
+        ext.pelvisX = rootX + px;
+        ext.pelvisY = rootY + py;
+        ext.pelvisZ = rootZ + pz;
+        ext.feetX = rootX + fx;
+        ext.feetY = rootY + fy;
+        ext.feetZ = rootZ + fz;
     }
     hitscanRaycast(shooterId, shooter, crouching, lastInput) {
         const eyeHeight = crouching ? CROUCH_EYE_HEIGHT : PLAYER_EYE_HEIGHT;
@@ -504,22 +413,21 @@ export class ArenaFFARoom extends Room {
                 return;
             if (p.health <= 0)
                 return;
-            const targetExt = p;
-            const useBoneHitboxes = targetExt._headX !== undefined &&
-                targetExt._headY !== undefined &&
-                targetExt._headZ !== undefined &&
-                targetExt._bodyCenterX !== undefined &&
-                targetExt._spineTopY !== undefined &&
-                targetExt._pelvisX !== undefined &&
-                targetExt._pelvisY !== undefined &&
-                targetExt._feetY !== undefined;
+            const targetExt = this.playerExt.get(targetId);
+            const useBoneHitboxes = targetExt?.headX !== undefined &&
+                targetExt?.headY !== undefined &&
+                targetExt?.headZ !== undefined &&
+                targetExt?.bodyCenterX !== undefined &&
+                targetExt?.spineTopY !== undefined &&
+                targetExt?.pelvisX !== undefined &&
+                targetExt?.pelvisY !== undefined &&
+                targetExt?.feetY !== undefined;
             if (process.env.DEBUG_HITSCAN && !useBoneHitboxes) {
                 console.log(`[ArenaFFA] Target ${targetId} using fallback hitboxes (missing bone data)`);
             }
-            // Use full bone position when available; fallback to fixed height above feet.
-            const headCx = useBoneHitboxes ? targetExt._headX : p.x;
-            const headCy = useBoneHitboxes ? targetExt._headY : p.y + HEAD_HITBOX_HEIGHT;
-            const headCz = useBoneHitboxes ? targetExt._headZ : p.z;
+            const headCx = useBoneHitboxes && targetExt ? targetExt.headX : p.x;
+            const headCy = useBoneHitboxes && targetExt ? targetExt.headY : p.y + HEAD_HITBOX_HEIGHT;
+            const headCz = useBoneHitboxes && targetExt ? targetExt.headZ : p.z;
             const tHead = raySphereIntersection(ox, oy, oz, dx, dy, dz, headCx, headCy, headCz, HEAD_HITBOX_RADIUS);
             if (tHead !== null && tHead > 0 && tHead <= HITSCAN_RANGE && tHead < bestT) {
                 const los = rayArenaIntersection(ox, oy, oz, dx, dy, dz, tHead);
@@ -533,11 +441,11 @@ export class ArenaFFARoom extends Room {
                 return;
             }
             let tBody;
-            if (useBoneHitboxes) {
-                const bcx = (targetExt._bodyCenterX + targetExt._pelvisX) / 2;
-                const bcz = (targetExt._bodyCenterZ + targetExt._pelvisZ) / 2;
-                const bodyTopY = targetExt._spineTopY + BODY_CAPSULE_TOP_EXTEND;
-                tBody = rayCapsuleIntersection(ox, oy, oz, dx, dy, dz, bcx, 0, bcz, targetExt._feetY, bodyTopY, BODY_CAPSULE_RADIUS);
+            if (useBoneHitboxes && targetExt) {
+                const bcx = (targetExt.bodyCenterX + targetExt.pelvisX) / 2;
+                const bcz = (targetExt.bodyCenterZ + targetExt.pelvisZ) / 2;
+                const bodyTopY = targetExt.spineTopY + BODY_CAPSULE_TOP_EXTEND;
+                tBody = rayCapsuleIntersection(ox, oy, oz, dx, dy, dz, bcx, 0, bcz, targetExt.feetY, bodyTopY, BODY_CAPSULE_RADIUS);
             }
             else {
                 tBody = rayCapsuleIntersection(ox, oy, oz, dx, dy, dz, p.x, p.y, p.z, 0, BODY_CAPSULE_TOP, BODY_CAPSULE_RADIUS);

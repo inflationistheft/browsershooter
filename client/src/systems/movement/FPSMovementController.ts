@@ -1,13 +1,11 @@
 /**
  * FPS movement: state machine (grounded / sliding / airborne), jump, slide, slide jump.
- * Same snapshot interface as DummyMovementController for drop-in use.
+ * Uses shared stepPlayerMovement for deterministic physics. Adds coyote/jump-buffer for client feel.
  */
 
 import type { Vec3 } from "shared";
 import type { InputState } from "../input/InputState.js";
-import { movementTuning } from "shared";
-import { PLAYER_RADIUS } from "shared";
-import { resolveArenaWalls, applyWallVelocitySlide } from "./arenaCollision.js";
+import { movementTuning, stepPlayerMovement, tickMovementTimers, PLAYER_RADIUS } from "shared";
 
 export type MovementStateName = "grounded" | "sliding" | "airborne";
 
@@ -22,7 +20,6 @@ export interface MovementSnapshot {
   crouching: boolean;
 }
 
-/** Ground plane Y in world (1 unit = 1 meter). */
 const GROUND_Y = 0;
 
 export class FPSMovementController {
@@ -31,208 +28,69 @@ export class FPSMovementController {
   yaw = 0;
   pitch = 0;
   private state: MovementStateName = "grounded";
-  private slideTime = 0;
+  private crouching = false;
   private coyoteTimer = 0;
   private jumpBufferTimer = 0;
-  private crouching = false;
-  /** C was pressed in air → enter slide on land without holding C. */
-  private slideOnLand = false;
-  /** Seconds left before slide jump can be used again. */
-  private slideJumpCooldownTimer = 0;
-  /** Seconds left before entering a new slide (prevents infinite re-entry while holding C). */
-  private slideEnterCooldownTimer = 0;
-  /** Max horizontal speed in air (preserved from jump; no gain in air). */
-  private horSpeedWhenJumped = 0;
+  private ext = {
+    slideTime: 0,
+    slideEnterCooldownTimer: 0,
+    slideJumpCooldownTimer: 0,
+    slideOnLand: false,
+    horSpeedWhenJumped: 0,
+  };
 
   update(dt: number, input: Readonly<InputState>, _physics: { raycast?: () => boolean }): void {
     const t = movementTuning;
 
-    // Jump buffer & coyote
     if (input.jump) this.jumpBufferTimer = t.jumpBufferTime;
     if (this.state === "grounded") this.coyoteTimer = t.coyoteTime;
     else this.coyoteTimer -= dt;
-    if (this.slideJumpCooldownTimer > 0) this.slideJumpCooldownTimer -= dt;
-    if (this.slideEnterCooldownTimer > 0) this.slideEnterCooldownTimer -= dt;
 
-    if (this.state === "sliding") {
-      this.slideTime += dt;
-      const hor = Math.hypot(this.velocity.x, this.velocity.z);
-      this.velocity.x *= t.slideDecay;
-      this.velocity.z *= t.slideDecay;
-      this.velocity.y -= t.gravity * dt;
-      this.velocity.y = Math.max(this.velocity.y, -t.maxFallSpeed);
+    tickMovementTimers(this.ext, dt);
 
-      this.position.x += this.velocity.x * dt;
-      this.position.z += this.velocity.z * dt;
-      const nextY = this.position.y + this.velocity.y * dt;
-      if (nextY <= GROUND_Y) {
-        this.position.y = GROUND_Y;
-        this.velocity.y = 0;
-      } else {
-        this.position.y = nextY;
-      }
-      const wall = resolveArenaWalls(this.position.x, this.position.z, PLAYER_RADIUS);
-      this.position.x = wall.x;
-      this.position.z = wall.z;
-      applyWallVelocitySlide(this.velocity, wall);
+    const hasSlideIntent = input.slide || input.slideIntentTicks > 0;
+    const effectiveJump = this.jumpBufferTimer > 0 || (input.jump && this.coyoteTimer > 0);
 
-      // Cancel slide if player presses movement in different direction (e.g. slide left, press W/S/D)
-      const cos = Math.cos(this.yaw);
-      const sin = Math.sin(this.yaw);
-      const inputWorldX = input.moveX * cos - input.moveZ * sin;
-      const inputWorldZ = -input.moveX * sin - input.moveZ * cos;
-      const inputMag = Math.hypot(inputWorldX, inputWorldZ);
-      const inputCancelsSlide =
-        inputMag > 0.1 &&
-        hor > 0.1 &&
-        (inputWorldX * this.velocity.x + inputWorldZ * this.velocity.z) / (inputMag * hor) < 0.5;
-      if (inputCancelsSlide) {
-        this.state = "grounded";
-        this.slideEnterCooldownTimer = t.slideEnterCooldown;
-        this.yaw = input.yaw;
-        this.pitch = input.pitch;
-        this.crouching = false;
-        return;
-      }
+    const movementInput = {
+      moveX: input.moveX,
+      moveZ: input.moveZ,
+      jump: effectiveJump,
+      hasSlideIntent,
+      yaw: input.yaw,
+      pitch: input.pitch,
+    };
+    const movementState = {
+      x: this.position.x,
+      y: this.position.y,
+      z: this.position.z,
+      vx: this.velocity.x,
+      vy: this.velocity.y,
+      vz: this.velocity.z,
+      movementState: this.state,
+      ext: this.ext,
+    };
 
-      // Apex-style: slide runs for duration / until too slow; no need to hold C
-      const stillSliding = hor >= t.slideMinSpeed && this.slideTime < t.slideDurationMax && this.position.y <= GROUND_Y + 0.01;
-      const canSlideJump = this.slideJumpCooldownTimer <= 0;
-      if (this.jumpBufferTimer > 0 && stillSliding && canSlideJump) {
-        const mult = t.slideJumpMultiplier;
-        this.velocity.y = t.jumpForce * mult;
-        this.velocity.x *= mult;
-        this.velocity.z *= mult;
-        this.horSpeedWhenJumped = Math.hypot(this.velocity.x, this.velocity.z);
-        this.jumpBufferTimer = 0;
-        this.slideJumpCooldownTimer = t.slideJumpCooldown;
-        this.state = "airborne";
-      } else if (!stillSliding) {
-        // End slide: go to grounded (velocity kept → friction slows to stop; W = walk/crouch speed)
-        this.slideEnterCooldownTimer = t.slideEnterCooldown;
-        if (this.position.y <= GROUND_Y + 0.01) this.state = "grounded";
-        else this.state = "airborne";
-      }
-      this.yaw = input.yaw;
-      this.pitch = input.pitch;
-      this.crouching = true;
-      return;
-    }
+    stepPlayerMovement(movementState, movementInput, dt, PLAYER_RADIUS);
 
-    if (this.state === "airborne") {
-      if (input.slideJustPressed || input.slideIntentTicks > 0) this.slideOnLand = true;
-      // Preserve horizontal speed from jump; no air acceleration
-      const hor = Math.hypot(this.velocity.x, this.velocity.z);
-      if (hor > this.horSpeedWhenJumped && this.horSpeedWhenJumped > 0) {
-        this.velocity.x *= this.horSpeedWhenJumped / hor;
-        this.velocity.z *= this.horSpeedWhenJumped / hor;
-      }
-      this.velocity.y -= t.gravity * dt;
-      this.velocity.y = Math.max(this.velocity.y, -t.maxFallSpeed);
-
-      this.position.x += this.velocity.x * dt;
-      this.position.z += this.velocity.z * dt;
-      const nextY = this.position.y + this.velocity.y * dt;
-      if (nextY <= GROUND_Y) {
-        this.position.y = GROUND_Y;
-        this.velocity.y = 0;
-        const horLand = Math.hypot(this.velocity.x, this.velocity.z);
-        // Air slide: C pressed in air → slide on land (movement from jump); always give small boost
-        if (this.slideOnLand && horLand >= t.slideEnterSpeed) {
-          this.state = "sliding";
-          this.slideTime = 0;
-          this.slideJumpCooldownTimer = 0;
-          this.crouching = true;
-          const boost = Math.max(horLand * t.slideSpeedBoost, t.slideInitialSpeed);
-          if (horLand > 0) {
-            this.velocity.x = (this.velocity.x / horLand) * boost;
-            this.velocity.z = (this.velocity.z / horLand) * boost;
-          }
-        } else {
-          this.state = "grounded";
-        }
-        this.slideOnLand = false;
-      } else {
-        this.position.y = nextY;
-      }
-      const wallAir = resolveArenaWalls(this.position.x, this.position.z, PLAYER_RADIUS);
-      this.position.x = wallAir.x;
-      this.position.z = wallAir.z;
-      applyWallVelocitySlide(this.velocity, wallAir);
-      this.yaw = input.yaw;
-      this.pitch = input.pitch;
-      this.jumpBufferTimer -= dt;
-      this.crouching = this.state === "sliding";
-      return;
-    }
-
-    // Ground slide: always available when moving fast enough (no sprint required)
-    const horSpeed = Math.hypot(this.velocity.x, this.velocity.z);
-    const slideEnterCooldownOk = this.slideEnterCooldownTimer <= 0;
-    const canGroundSlide =
-      input.slideIntentTicks > 0 &&
-      slideEnterCooldownOk &&
-      horSpeed >= t.slideEnterSpeed;
-    if (canGroundSlide) {
-      this.state = "sliding";
-      this.slideTime = 0;
-      this.crouching = true;
-      const hor = Math.hypot(this.velocity.x, this.velocity.z);
-      const boost = Math.max(hor * t.slideSpeedBoost, t.slideInitialSpeed);
-      if (hor > 0) {
-        this.velocity.x = (this.velocity.x / hor) * boost;
-        this.velocity.z = (this.velocity.z / hor) * boost;
-      }
-      return;
-    }
-
-    const speed = input.slide ? t.maxSpeedCrouch : t.maxSpeedWalk;
-    const cos = Math.cos(this.yaw);
-    const sin = Math.sin(this.yaw);
-    const accel = t.accel;
-    const ax = (input.moveX * cos - input.moveZ * sin) * accel * dt;
-    const az = (-input.moveX * sin - input.moveZ * cos) * accel * dt;
-    this.velocity.x += ax;
-    this.velocity.z += az;
-    this.velocity.x *= Math.max(0, 1 - t.friction * dt);
-    this.velocity.z *= Math.max(0, 1 - t.friction * dt);
-    const hor = Math.hypot(this.velocity.x, this.velocity.z);
-    if (hor > speed) {
-      this.velocity.x *= speed / hor;
-      this.velocity.z *= speed / hor;
-    }
-
-    if (this.jumpBufferTimer > 0 || (input.jump && this.coyoteTimer > 0)) {
-      this.velocity.y = t.jumpForce;
-      this.horSpeedWhenJumped = Math.hypot(this.velocity.x, this.velocity.z);
-      this.state = "airborne";
-      this.jumpBufferTimer = 0;
-    } else {
-      this.velocity.y -= t.gravity * dt;
-      this.velocity.y = Math.max(this.velocity.y, -t.maxFallSpeed);
-    }
-
-    this.position.x += this.velocity.x * dt;
-    this.position.z += this.velocity.z * dt;
-    const nextY = this.position.y + this.velocity.y * dt;
-    if (nextY <= GROUND_Y) {
-      this.position.y = GROUND_Y;
-      this.velocity.y = 0;
-      this.state = "grounded";
-    } else {
-      this.position.y = nextY;
-      this.horSpeedWhenJumped = Math.hypot(this.velocity.x, this.velocity.z) || this.horSpeedWhenJumped;
-      this.state = "airborne";
-    }
-    const wallGnd = resolveArenaWalls(this.position.x, this.position.z, PLAYER_RADIUS);
-    this.position.x = wallGnd.x;
-    this.position.z = wallGnd.z;
-    applyWallVelocitySlide(this.velocity, wallGnd);
-
+    this.position.x = movementState.x;
+    this.position.y = movementState.y;
+    this.position.z = movementState.z;
+    this.velocity.x = movementState.vx;
+    this.velocity.y = movementState.vy;
+    this.velocity.z = movementState.vz;
+    this.state = movementState.movementState;
     this.yaw = input.yaw;
     this.pitch = input.pitch;
-    this.jumpBufferTimer -= dt;
-    this.crouching = input.slide;
+
+    if (effectiveJump && this.state === "airborne") {
+      this.jumpBufferTimer = 0;
+    }
+    if (this.state === "airborne") {
+      this.jumpBufferTimer -= dt;
+    }
+
+    this.crouching =
+      this.state === "sliding" || (this.state === "grounded" && hasSlideIntent);
   }
 
   getSnapshot(): MovementSnapshot {

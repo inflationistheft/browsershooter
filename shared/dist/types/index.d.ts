@@ -28,6 +28,8 @@ export interface PlayerInput {
     sprint: boolean;
     jump: boolean;
     slide: boolean;
+    /** Ticks remaining where slide can trigger (client sets on keydown so short taps are not missed). Server treats as slide=true when > 0. */
+    slideIntentTicks?: number;
     yaw: number;
     pitch: number;
     shoot: boolean;

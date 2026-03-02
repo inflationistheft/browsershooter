@@ -1,6 +1,6 @@
 /**
  * Maps client InputState to PlayerInput for network transmission.
- * slideJustPressed and slideIntentTicks are client-only; server gets slide boolean.
+ * slideIntentTicks is sent so server can honor short taps (same as client).
  */
 
 import type { InputState } from "../input/InputState.js";
@@ -31,6 +31,7 @@ export function inputStateToPlayerInput(
     sprint: state.sprint,
     jump: state.jump,
     slide: state.slide,
+    slideIntentTicks: state.slideIntentTicks > 0 ? state.slideIntentTicks : undefined,
     yaw: state.yaw,
     pitch: state.pitch,
     shoot: state.shoot,
