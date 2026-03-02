@@ -73,6 +73,7 @@ export const clientConfig = {
   thirdPersonWeaponRotationZ: 1.45,
   /** Per-animation overrides for 3P weapon (slide, jump, etc. have different hand poses). */
   thirdPersonWeaponOffsets: {
+    walkBackwards: { x: 0, y: 0, z: 0, rotX: 0.09, rotY: 3.39, rotZ: 1.45, scale: 1 },
     crouchForward: { x: 0, y: 0, z: 0, rotX: 0.12, rotY: 3.43, rotZ: 1.45, scale: 1 },
     crouchBackward: { x: 0, y: 0, z: 0, rotX: 0.12, rotY: 3.43, rotZ: 1.45, scale: 1 },
     crouchLeft: { x: 0, y: 0, z: 0, rotX: 0.12, rotY: 3.43, rotZ: 1.45, scale: 1 },
