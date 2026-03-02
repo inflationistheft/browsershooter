@@ -29,9 +29,65 @@ import {
   type PovOffset,
 } from "./TunerState.js";
 import { createTunerPanel } from "./TunerPanel.js";
+import {
+  createViewmodelMovementState,
+  updateViewmodelMovement,
+  type ViewmodelMovementInput,
+} from "../game/ViewmodelMovement.js";
+import type { MovementStateName } from "../systems/movement/FPSMovementController.js";
 
 function getCurrentPovCfg(clipId: AnimationClipId): PovOffset {
   return tunerPovOffsets[clipId] ?? tunerPovDefault;
+}
+
+/** Map selected clip to simulated movement input for procedural POV effects. */
+function getSimulatedMovementInput(
+  clipId: AnimationClipId,
+  dt: number,
+  yaw: number,
+  pitch: number,
+  shotThisFrame: boolean
+): ViewmodelMovementInput {
+  const WALK_SPEED = 4;
+  const RUN_SPEED = 8;
+  const CROUCH_SPEED = 2;
+
+  const map: Partial<
+    Record<
+      AnimationClipId,
+      {
+        velocity: { x: number; y: number; z: number };
+        state: MovementStateName;
+        crouching: boolean;
+      }
+    >
+  > = {
+    idle: { velocity: { x: 0, y: 0, z: 0 }, state: "grounded", crouching: false },
+    walk: { velocity: { x: 0, y: 0, z: WALK_SPEED }, state: "grounded", crouching: false },
+    walkBackwards: { velocity: { x: 0, y: 0, z: -WALK_SPEED * 0.7 }, state: "grounded", crouching: false },
+    strafeLeft: { velocity: { x: -WALK_SPEED, y: 0, z: 0 }, state: "grounded", crouching: false },
+    strafeRight: { velocity: { x: WALK_SPEED, y: 0, z: 0 }, state: "grounded", crouching: false },
+    strafeLeftFast: { velocity: { x: -WALK_SPEED, y: 0, z: 0 }, state: "grounded", crouching: false },
+    strafeRightFast: { velocity: { x: WALK_SPEED, y: 0, z: 0 }, state: "grounded", crouching: false },
+    run: { velocity: { x: 0, y: 0, z: RUN_SPEED }, state: "grounded", crouching: false },
+    jump: { velocity: { x: 0, y: 2, z: WALK_SPEED }, state: "airborne", crouching: false },
+    slide: { velocity: { x: 0, y: 0, z: RUN_SPEED }, state: "sliding", crouching: true },
+    crouchForward: { velocity: { x: 0, y: 0, z: CROUCH_SPEED }, state: "grounded", crouching: true },
+    crouchBackward: { velocity: { x: 0, y: 0, z: -CROUCH_SPEED }, state: "grounded", crouching: true },
+    crouchLeft: { velocity: { x: -CROUCH_SPEED, y: 0, z: 0 }, state: "grounded", crouching: true },
+    crouchRight: { velocity: { x: CROUCH_SPEED, y: 0, z: 0 }, state: "grounded", crouching: true },
+  };
+  const fallback = map.idle!;
+  const sim = map[clipId] ?? fallback;
+  return {
+    dt,
+    velocity: sim.velocity,
+    state: sim.state,
+    crouching: sim.crouching,
+    yaw,
+    pitch,
+    shotThisFrame,
+  };
 }
 
 export async function bootTuner(app: HTMLElement, canvas: HTMLCanvasElement): Promise<void> {
@@ -69,12 +125,18 @@ export async function bootTuner(app: HTMLElement, canvas: HTMLCanvasElement): Pr
     if (playerSkinTex) applySkinToModel(viewmodelModel, playerSkinTex);
   }
 
+  const viewmodelRoot = new THREE.Group();
+  viewmodelRoot.position.set(0, 0, 0);
+  viewmodelRoot.quaternion.identity();
+  viewmodelRoot.scale.setScalar(1);
+
   const viewmodelHolder = new THREE.Group();
   viewmodelHolder.add(viewmodelModel);
   viewmodelModel.position.set(0, 0, 0);
   viewmodelModel.rotation.set(0, 0, 0);
   viewmodelModel.scale.setScalar(1);
-  cameraSystem.getCamera().add(viewmodelHolder);
+  viewmodelRoot.add(viewmodelHolder);
+  cameraSystem.getCamera().add(viewmodelRoot);
 
   viewmodelModel.traverse((obj) => {
     obj.frustumCulled = false;
@@ -100,7 +162,7 @@ export async function bootTuner(app: HTMLElement, canvas: HTMLCanvasElement): Pr
       weaponScene.position.set(grip.x, grip.y, grip.z);
       weaponScene.scale.setScalar(baseScale);
 
-      cameraSystem.getCamera().add(weaponContainer);
+      viewmodelRoot.add(weaponContainer);
 
       weaponScene.traverse((obj) => {
         obj.frustumCulled = false;
@@ -128,7 +190,9 @@ export async function bootTuner(app: HTMLElement, canvas: HTMLCanvasElement): Pr
     playerAnimationSystem.playStaticIdlePose(localPlayerMixer);
   }
 
-  const panel = createTunerPanel(cameraSystem);
+  const movementState = createViewmodelMovementState();
+  const recoilTrigger = { value: false };
+  const panel = createTunerPanel(cameraSystem, { triggerRecoil: recoilTrigger });
 
   setLoadingMessage("Ready!", 100);
   await new Promise((r) => setTimeout(r, 300));
@@ -221,6 +285,13 @@ export async function bootTuner(app: HTMLElement, canvas: HTMLCanvasElement): Pr
     viewmodelHolder.position.set(cfg.x, cfg.y, cfg.z);
     viewmodelHolder.rotation.set(cfg.rotX, cfg.rotY, cfg.rotZ);
     viewmodelHolder.scale.setScalar(cfg.scale);
+
+    const shotThisFrame = recoilTrigger.value;
+    if (shotThisFrame) recoilTrigger.value = false;
+    const movementInput = getSimulatedMovementInput(clipId, dt, yaw, pitch, shotThisFrame);
+    const { position: procPos, rotation: procRot } = updateViewmodelMovement(movementState, movementInput);
+    viewmodelRoot.position.copy(procPos);
+    viewmodelRoot.rotation.set(procRot.x, procRot.y, procRot.z, "YXZ");
 
     if (localPlayerMixer) localPlayerMixer.update(dt);
     viewmodelModel.updateMatrixWorld(true);

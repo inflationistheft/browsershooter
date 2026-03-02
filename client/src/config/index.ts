@@ -4,6 +4,59 @@
 
 import type { AnimationClipId } from "shared";
 
+export interface PovMovementTuning {
+  moveFactorSmoothTau: number;
+  phaseSpeedSmoothTau: number;
+  rootApplyTau: number;
+  bobAmplitudeY: number;
+  bobAmplitudeX: number;
+  bobAmplitudeRoll: number;
+  bobAmplitudePitch: number;
+  bobPhaseOffsetX: number;
+  bobFrequency: number;
+  bobCrouchMultiplier: number;
+  swayLookFactor: number;
+  swaySmoothTau: number;
+  swayDeltaSmoothTau?: number;
+  swayReturnDamping: number;
+  swaySlideReduce: number;
+  strafeLeanX?: number;
+  strafeLeanRoll?: number;
+  forwardLeanZ?: number;
+  strafeLeanTau?: number;
+  strafeBobYReduce?: number;
+  strafeBobXBoost?: number;
+  strafeBobRollBoost?: number;
+  idleBreathingAmplitudeY?: number;
+  idleBreathingAmplitudeX?: number;
+  idleBreathingPeriod?: number;
+  idlePitchAmplitude?: number;
+  idleRollAmplitude?: number;
+  idleWalkReduce?: number;
+  idleAirborneReduce?: number;
+  jumpTakeoffDip?: number;
+  jumpTakeoffDecay?: number;
+  jumpAirborneFloatY?: number;
+  jumpLandingDip?: number;
+  jumpLandingSpringK?: number;
+  jumpLandingSpringDamp?: number;
+  jumpLandingRoll?: number;
+  jumpInertiaZ?: number;
+  swayAirborneReduce?: number;
+  recoilKickPitch: number;
+  recoilPullback: number;
+  recoilRollVariation: number;
+  recoilRecoveryTau: number;
+  recoilSlideReduce: number;
+  slideYOffset: number;
+  slideZOffset: number;
+  slideInwardTilt: number;
+  slideImpactDipAmp: number;
+  slideImpactDipTau: number;
+  slideInTau: number;
+  slideOutTau: number;
+}
+
 export interface ThirdPersonWeaponOffset {
   x: number;
   y: number;
@@ -54,6 +107,19 @@ export const clientConfig = {
   /** Skin ID for player (PNG in /models/skins/{id}.png). Empty = use embedded GLB texture. Default: orange. */
   playerSkin: ((import.meta as unknown as { env?: { VITE_PLAYER_SKIN?: string } }).env?.VITE_PLAYER_SKIN ?? "orange").trim(),
 
+  /** Muzzle flash: PNG URLs. Place 2–3 in /models/effects/. Falls back to procedural texture if load fails. */
+  muzzleFlashUrls: [
+    "/models/effects/muzzle1.png",
+    "/models/effects/muzzle2.png",
+    "/models/effects/muzzle3.png",
+  ] as string[],
+  /** Muzzle flash display duration (ms). ~50ms is visible, 30ms very brief. */
+  muzzleFlashDurationMs: 50,
+  /** Muzzle flash sprite size in world units (POV). */
+  muzzleFlashScalePov: 0.21,
+  /** Muzzle flash sprite size for 3P (remote players). */
+  muzzleFlashScale3P: 0.11,
+
   /**
    * Override animation clip names if your GLB uses different names.
    * Keys: idle, walk, walkBackwards, strafeLeft, strafeRight, strafeLeftFast, strafeRightFast,
@@ -75,6 +141,59 @@ export const clientConfig = {
   tuning: {
     /** Crouch eye-height transition: 1 - exp(-dt/TAU). ~120ms to 95%. */
     crouchTransitionTau: 0.04,
+    /** Procedural viewmodel movement: Bob, Sway, Recoil, Slide. */
+    povMovement: {
+      moveFactorSmoothTau: 0.06,
+      phaseSpeedSmoothTau: 0.08,
+      rootApplyTau: 0.025,
+      bobAmplitudeY: 0.01512,
+      bobAmplitudeX: 0.0156,
+      bobAmplitudeRoll: 0.0052,
+      bobAmplitudePitch: 0.00258,
+      bobPhaseOffsetX: 0.3,
+      bobFrequency: 10,
+      bobCrouchMultiplier: 0.5,
+      swayLookFactor: 0.6,
+      swaySmoothTau: 0.05,
+      swayDeltaSmoothTau: 0.04,
+      swayReturnDamping: 0.88,
+      swaySlideReduce: 0.7,
+      strafeLeanX: 0.2,
+      strafeLeanRoll: 0.025,
+      forwardLeanZ: 0.1,
+      strafeLeanTau: 0.06,
+      strafeBobYReduce: 0.7,
+      strafeBobXBoost: 0.5,
+      strafeBobRollBoost: 0.8,
+      idleBreathingAmplitudeY: 0.008,
+      idleBreathingAmplitudeX: 0.0024,
+      idleBreathingPeriod: 4,
+      idlePitchAmplitude: 0.0024,
+      idleRollAmplitude: 0.0012,
+      idleWalkReduce: 0.85,
+      idleAirborneReduce: 0.3,
+      jumpTakeoffDip: -0.016,
+      jumpTakeoffDecay: 8,
+      jumpAirborneFloatY: 0.032,
+      jumpLandingDip: -0.06,
+      jumpLandingSpringK: 60,
+      jumpLandingSpringDamp: 14,
+      jumpLandingRoll: 0.016,
+      jumpInertiaZ: 0.016,
+      swayAirborneReduce: 0.5,
+      recoilKickPitch: 0.02,
+      recoilPullback: 0.15,
+      recoilRollVariation: 0.02,
+      recoilRecoveryTau: 0.06,
+      recoilSlideReduce: 0.5,
+      slideYOffset: -0.015,
+      slideZOffset: -0.01,
+      slideInwardTilt: 0.15,
+      slideImpactDipAmp: -0.008,
+      slideImpactDipTau: 0.04,
+      slideInTau: 0.03,
+      slideOutTau: 0.1,
+    } as PovMovementTuning,
     /** Remote player interpolation: 1 - exp(-dt/TAU). ~100ms to 95% of target. */
     remoteInterpTau: 0.05,
     /** Distance (m) before applying strong reconciliation correction. */

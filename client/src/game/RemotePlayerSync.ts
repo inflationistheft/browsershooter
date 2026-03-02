@@ -13,6 +13,7 @@ import {
   applySkinToModel,
   createPlaceholderMesh,
 } from "../systems/assetLoader/AssetLoader.js";
+import { MuzzleFlashEffect } from "./MuzzleFlashSystem.js";
 import type { PlayerAnimationSystem } from "../systems/animation/PlayerAnimationSystem.js";
 import type { SceneManager } from "../systems/rendering/SceneManager.js";
 import type { FPSMovementController } from "../systems/movement/FPSMovementController.js";
@@ -35,8 +36,16 @@ export class RemotePlayerSync {
   private remotePlayerMixers = new Map<string, THREE.AnimationMixer>();
   private remotePlayerWeaponContainers = new Map<
     string,
-    { container: THREE.Group; weaponScene: THREE.Object3D; rightHandBone: THREE.Bone | null }
+    {
+      container: THREE.Group;
+      weaponScene: THREE.Object3D;
+      rightHandBone: THREE.Bone | null;
+      muzzleNode: THREE.Object3D;
+    }
   >();
+  private lastShotTickSeen = new Map<string, number>();
+  private remotePlayerMuzzleFlashes = new Map<string, MuzzleFlashEffect>();
+  private muzzleFlashTextures: THREE.Texture[] = [];
   private hasAppliedInitialSpawn = false;
 
   private _handPos3p = new THREE.Vector3();
@@ -59,6 +68,10 @@ export class RemotePlayerSync {
 
   setWeaponTemplate3P(template: THREE.Object3D | null): void {
     this.weaponTemplate3P = template;
+  }
+
+  setMuzzleFlashTextures(textures: THREE.Texture[]): void {
+    this.muzzleFlashTextures = textures;
   }
 
   getRemotePlayerMeshes(): Map<string, THREE.Object3D> {
@@ -110,6 +123,10 @@ export class RemotePlayerSync {
     if (this.weaponTemplate3P) {
       const rightHandBone = findRightHandBone(clone);
       const weaponClone = this.weaponTemplate3P.clone(true);
+      const muzzleNode =
+        weaponClone.getObjectByName("muzzle") ??
+        weaponClone.getObjectByName("Muzzle") ??
+        weaponClone;
       const weaponContainer = new THREE.Group();
       weaponContainer.add(weaponClone);
       scene.add(weaponContainer);
@@ -129,7 +146,17 @@ export class RemotePlayerSync {
         container: weaponContainer,
         weaponScene: weaponClone,
         rightHandBone,
+        muzzleNode,
       });
+      this.lastShotTickSeen.set(key, 0);
+      if (this.muzzleFlashTextures.length > 0) {
+        const effect = new MuzzleFlashEffect({
+          durationMs: clientConfig.muzzleFlashDurationMs,
+          scale: clientConfig.muzzleFlashScale3P,
+        });
+        effect.setTextures(this.muzzleFlashTextures);
+        this.remotePlayerMuzzleFlashes.set(key, effect);
+      }
     }
   }
 
@@ -149,6 +176,12 @@ export class RemotePlayerSync {
     if (weaponRef) {
       scene.remove(weaponRef.container);
       this.remotePlayerWeaponContainers.delete(key);
+    }
+    this.lastShotTickSeen.delete(key);
+    const flash = this.remotePlayerMuzzleFlashes.get(key);
+    if (flash) {
+      flash.dispose();
+      this.remotePlayerMuzzleFlashes.delete(key);
     }
   }
 
@@ -288,10 +321,19 @@ export class RemotePlayerSync {
               cfg.rotZ
             );
             weaponRef.weaponScene.scale.setScalar(cfg.scale);
+            const lastSeen = this.lastShotTickSeen.get(key) ?? 0;
+            if (player.lastShotTick > lastSeen) {
+              this.lastShotTickSeen.set(key, player.lastShotTick);
+              const flash = this.remotePlayerMuzzleFlashes.get(key);
+              if (flash) flash.trigger(weaponRef.muzzleNode);
+            }
           }
         }
       }
     });
+
+    const dtMs = dt * 1000;
+    this.remotePlayerMuzzleFlashes.forEach((flash) => flash.update(dtMs));
 
     const toRemove: string[] = [];
     const stateKeys = new Set<string>();

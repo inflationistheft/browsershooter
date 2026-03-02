@@ -7,7 +7,6 @@ import type { PlayerInput } from "shared";
 
 export interface PlayerExtendedState {
   lastInput?: Partial<PlayerInput>;
-  pendingShoot?: boolean;
   shootCooldownTicks?: number;
   lastDamageTick?: number;
   reloadTicks?: number;

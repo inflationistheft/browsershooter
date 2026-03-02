@@ -17,6 +17,11 @@ export interface TunerPanel {
   getSelectedClipId(): AnimationClipId;
 }
 
+export interface TunerPanelOptions {
+  /** When set to true, triggers one recoil in the next frame. Panel resets after read. */
+  triggerRecoil?: { value: boolean };
+}
+
 function addSpinnerButtons(
   controller: unknown,
   step: number,
@@ -63,7 +68,7 @@ function addSpinnerButtons(
   }
 }
 
-export function createTunerPanel(cameraSystem: FPSCamera): TunerPanel {
+export function createTunerPanel(cameraSystem: FPSCamera, options?: TunerPanelOptions): TunerPanel {
   const style = document.createElement("style");
   style.textContent = `
     .dg.ac { z-index: 10000 !important; font-size: 15px !important; }
@@ -163,6 +168,10 @@ export function createTunerPanel(cameraSystem: FPSCamera): TunerPanel {
       selectedClipId = val;
       updatePovAnimControllers();
     });
+  if (options?.triggerRecoil) {
+    const recoilActions = { Schuss: () => { options.triggerRecoil!.value = true; } };
+    povAnimFolder.add(recoilActions, "Schuss").name("Schuss (Recoil testen)");
+  }
 
   const povAnimEdit: PovOffset = { ...tunerPovDefault };
   const povAnimControllers: ReturnType<GUI["add"]>[] = [];

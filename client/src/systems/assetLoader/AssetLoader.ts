@@ -136,6 +136,142 @@ const SKINS_BASE = "/models/skins";
 
 const skinTextureCache = new Map<string, THREE.Texture>();
 
+/** Simple seeded random for deterministic variant generation. */
+function mulberry32(seed: number): () => number {
+  return () => {
+    let t = (seed += 0x6d2b79f5);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const MUZZLE_FLASH_VARIANT_COUNT = 10;
+
+/** Content radius (0–1 of half-size). Same visual size as original. 512 texture = room for soft edges. */
+const MUZZLE_FLASH_CONTENT_RADIUS = 0.65;
+/** Edge fade starts here (0–1). Soft transparent border before texture edge. */
+const MUZZLE_FLASH_EDGE_FADE_START = 0.55;
+
+/** Create procedural muzzle flash – warm, fire-like, noisy. Large texture keeps content size + soft edges. */
+function createMuzzleFlashFallbackTexture(variant: number): THREE.Texture {
+  const size = 512;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  const center = size / 2;
+  const maxR = center * MUZZLE_FLASH_CONTENT_RADIUS;
+  const rng = mulberry32(variant * 12345 + 1);
+
+  ctx.clearRect(0, 0, size, size);
+
+  const numSpikes = 3 + (variant % 4);
+  const baseAngle = (variant * 0.37) * Math.PI;
+
+  for (let i = 0; i < numSpikes; i++) {
+    const angle = baseAngle + (i / numSpikes) * Math.PI * 2 + (rng() - 0.5) * 0.9;
+    const len = (0.2 + rng() * 0.35) * MUZZLE_FLASH_CONTENT_RADIUS;
+    const width = (0.12 + rng() * 0.14) * MUZZLE_FLASH_CONTENT_RADIUS;
+    ctx.save();
+    ctx.translate(center, center);
+    ctx.rotate(angle);
+    const grad = ctx.createLinearGradient(0, 0, len * size, 0);
+    grad.addColorStop(0, "rgba(255,155,70,0.78)");
+    grad.addColorStop(0.1, "rgba(255,125,45,0.72)");
+    grad.addColorStop(0.28, "rgba(240,95,30,0.48)");
+    grad.addColorStop(0.48, "rgba(210,70,18,0.22)");
+    grad.addColorStop(0.68, "rgba(175,50,10,0.08)");
+    grad.addColorStop(0.88, "rgba(140,35,6,0.02)");
+    grad.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, len * size, width * size, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  const coreGrad = ctx.createRadialGradient(
+    center,
+    center,
+    0,
+    center,
+    center,
+    maxR
+  );
+  coreGrad.addColorStop(0, "rgba(255,175,85,0.94)");
+  coreGrad.addColorStop(0.18, "rgba(255,140,55,0.82)");
+  coreGrad.addColorStop(0.42, "rgba(245,105,35,0.54)");
+  coreGrad.addColorStop(0.65, "rgba(210,75,22,0.2)");
+  coreGrad.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = coreGrad;
+  ctx.beginPath();
+  ctx.arc(center, center, maxR, 0, Math.PI * 2);
+  ctx.fill();
+
+  const imageData = ctx.getImageData(0, 0, size, size);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const i = (y * size + x) * 4;
+      const dx = (x - center) / center;
+      const dy = (y - center) / center;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const edgeFade =
+        dist < MUZZLE_FLASH_EDGE_FADE_START
+          ? 1
+          : Math.max(0, 1 - (dist - MUZZLE_FLASH_EDGE_FADE_START) / 0.2);
+      const a = imageData.data[i + 3];
+      if (a > 2) {
+        const edgeFactor = 1 + (1 - a / 255) * 1.5;
+        const noise = (rng() - 0.5) * 75 * edgeFactor;
+        imageData.data[i] = Math.max(0, Math.min(255, imageData.data[i] + noise));
+        imageData.data[i + 1] = Math.max(0, Math.min(255, imageData.data[i + 1] + noise * 0.85));
+        imageData.data[i + 2] = Math.max(0, Math.min(255, imageData.data[i + 2] + noise * 0.25));
+        imageData.data[i + 3] = Math.round(imageData.data[i + 3] * edgeFade);
+      }
+    }
+  }
+  ctx.putImageData(imageData, 0, 0);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/** Load muzzle flash textures. Falls back to procedural texture if URLs fail. Cached. */
+export async function loadMuzzleFlashTextures(
+  urls: string[]
+): Promise<THREE.Texture[]> {
+  if (urls.length === 0) {
+    return Array.from({ length: MUZZLE_FLASH_VARIANT_COUNT }, (_, i) =>
+      createMuzzleFlashFallbackTexture(i)
+    );
+  }
+  const loaded: THREE.Texture[] = [];
+  for (const url of urls) {
+    try {
+      const tex = await textureLoader.loadAsync(url);
+      tex.flipY = false;
+      loaded.push(tex);
+    } catch (err) {
+      if (import.meta.env?.DEV) {
+        console.warn("[MuzzleFlash] Failed to load", url, err);
+      }
+    }
+  }
+  if (loaded.length === 0) {
+    if (import.meta.env?.DEV) {
+      console.info(
+        `[MuzzleFlash] Using procedural fallback textures (${MUZZLE_FLASH_VARIANT_COUNT} variants)`
+      );
+    }
+    return Array.from({ length: MUZZLE_FLASH_VARIANT_COUNT }, (_, i) =>
+      createMuzzleFlashFallbackTexture(i)
+    );
+  }
+  return loaded;
+}
+
 /** Load skin texture from /models/skins/{id}.png. Returns null if load fails (use embedded). Caches by skinId. */
 export async function loadSkinTexture(skinId: string): Promise<THREE.Texture | null> {
   if (!skinId) return null;

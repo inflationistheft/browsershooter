@@ -29,7 +29,8 @@ export function updateDebugOverlay(
     playerCount: number;
   },
   debugMode?: boolean,
-  hitAngle?: number | null
+  hitAngle?: number | null,
+  pingMs?: number | null
 ): void {
   frameCount++;
   const now = performance.now();
@@ -53,6 +54,8 @@ export function updateDebugOverlay(
       hitAngle !== undefined && hitAngle !== null
         ? ` | Hit: ${hitAngle.toFixed(0)}°`
         : "";
-    el.textContent = `FPS: ${fps} | Vel: ${velocity.x.toFixed(1)}, ${velocity.y.toFixed(1)}, ${velocity.z.toFixed(1)} | State: ${state}${sprintStr}${netStr}${debugStr}${hitStr}`;
+    const pingStr =
+      pingMs !== undefined && pingMs !== null ? ` | Ping: ${pingMs}ms` : "";
+    el.textContent = `FPS: ${fps} | Vel: ${velocity.x.toFixed(1)}, ${velocity.y.toFixed(1)}, ${velocity.z.toFixed(1)} | State: ${state}${sprintStr}${netStr}${pingStr}${debugStr}${hitStr}`;
   }
 }

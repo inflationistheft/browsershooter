@@ -41,14 +41,18 @@ import {
 } from "./systems/animation/getHitboxPositions.js";
 import {
   loadPlayerModelWithAnimations,
+  loadMuzzleFlashTextures,
   setModelSkin,
 } from "./systems/assetLoader/AssetLoader.js";
+import { MuzzleFlashEffect } from "./game/MuzzleFlashSystem.js";
 import { PlayerAnimationSystem } from "./systems/animation/PlayerAnimationSystem.js";
 import {
   PLAYER_EYE_HEIGHT,
   CROUCH_EYE_HEIGHT,
   MAX_SHIELD,
   MAX_HEALTH,
+  SHOT_INTERVAL_TICKS,
+  RELOAD_TICKS,
 } from "shared";
 import { RemotePlayerSync } from "./game/RemotePlayerSync.js";
 import {
@@ -56,6 +60,7 @@ import {
   updateViewmodelFrame,
   type ViewmodelState,
 } from "./game/ViewmodelSetup.js";
+import type { ViewmodelMovementInput } from "./game/ViewmodelMovement.js";
 
 const app = document.getElementById("app");
 if (!app) throw new Error("No #app");
@@ -125,6 +130,9 @@ if (tunerParam === "1") {
   const physics = { raycast: (): boolean => false };
   const loop = new GameLoop();
   let inputTick = 0;
+  let shotThisFrame = false;
+  let clientShootCooldownTicks = 0;
+  let clientReloadTicks = 0;
 
   let currentEyeHeight = PLAYER_EYE_HEIGHT;
 
@@ -135,6 +143,7 @@ if (tunerParam === "1") {
   let playerAnimationSystem: PlayerAnimationSystem;
   let hitboxDummy: THREE.Object3D | null = null;
   let hitboxDummyMixer: THREE.AnimationMixer | null = null;
+  let muzzleFlashPov: MuzzleFlashEffect | null = null;
 
   async function initAssets(): Promise<void> {
     setLoadingMessage("Loading characters and arena…", 15);
@@ -159,6 +168,14 @@ if (tunerParam === "1") {
     remotePlayerSync.setWeaponTemplate3P(viewmodelResult.weaponTemplate3P);
     remotePlayerSync.setPlayerAnimationSystem(playerAnimationSystem);
 
+    const muzzleTextures = await loadMuzzleFlashTextures(clientConfig.muzzleFlashUrls);
+    muzzleFlashPov = new MuzzleFlashEffect({
+      durationMs: clientConfig.muzzleFlashDurationMs,
+      scale: clientConfig.muzzleFlashScalePov,
+    });
+    muzzleFlashPov.setTextures(muzzleTextures);
+    remotePlayerSync.setMuzzleFlashTextures(muzzleTextures);
+
     if (viewmodelResult.viewmodelAnimations.length > 0) {
       localPlayerMixer = new THREE.AnimationMixer(viewmodelResult.viewmodelModel);
       playerAnimationSystem.playStaticIdlePose(localPlayerMixer);
@@ -179,6 +196,9 @@ if (tunerParam === "1") {
   loop
     .setTickCallback((dt) => {
       const state = input.getState();
+      shotThisFrame = false;
+      if (clientShootCooldownTicks > 0) clientShootCooldownTicks--;
+      if (clientReloadTicks > 0) clientReloadTicks--;
       if (state.debugModeJustPressed) debugMode = !debugMode;
       movement.update(dt, state, physics);
       const snap = movement.getSnapshot();
@@ -196,6 +216,24 @@ if (tunerParam === "1") {
       cameraSystem.setRotation(snap.yaw, snap.pitch);
       const room = netClient.getRoom();
       if (room) {
+        const localPlayer = room.state.players.get(room.sessionId);
+        if (localPlayer) {
+          const ammo = localPlayer.ammo;
+          const maxAmmo = localPlayer.maxAmmo;
+          const infiniteAmmo = debugMode;
+          if (state.reload && ammo < maxAmmo && clientReloadTicks <= 0)
+            clientReloadTicks = RELOAD_TICKS;
+          const canShoot =
+            state.shoot &&
+            (ammo > 0 || infiniteAmmo) &&
+            clientReloadTicks <= 0 &&
+            clientShootCooldownTicks <= 0 &&
+            localPlayer.health > 0;
+          if (canShoot) {
+            shotThisFrame = true;
+            clientShootCooldownTicks = SHOT_INTERVAL_TICKS;
+          }
+        }
         const aimDir = cameraSystem.getAimDirection();
         const hitboxForInput = lastHitboxPositions ?? undefined;
         const shootEyePos = state.shoot ? cameraSystem.getEyePosition() : undefined;
@@ -223,7 +261,23 @@ if (tunerParam === "1") {
       cameraSystem.update(dt);
       if (localPlayerMixer) localPlayerMixer.update(dt);
       if (playerViewModel) playerViewModel.updateMatrixWorld(true);
-      if (viewmodelState) updateViewmodelFrame(viewmodelState);
+      if (viewmodelState) {
+        if (shotThisFrame && viewmodelState.muzzleNodeRef && muzzleFlashPov) {
+          muzzleFlashPov.trigger(viewmodelState.muzzleNodeRef);
+        }
+        const movementInput: ViewmodelMovementInput = {
+          dt,
+          velocity: snap.velocity,
+          state: snap.state,
+          crouching: snap.crouching,
+          yaw: snap.yaw,
+          pitch: snap.pitch,
+          shotThisFrame,
+        };
+        updateViewmodelFrame(viewmodelState, movementInput);
+        if (muzzleFlashPov) muzzleFlashPov.update(dt * 1000);
+        shotThisFrame = false;
+      }
       remotePlayerSync.updateRemoteMixers(dt);
       if (hitboxDummy) {
         hitboxDummy.position.set(snap.position.x, snap.position.y, snap.position.z);
@@ -317,7 +371,8 @@ if (tunerParam === "1") {
           input.getState().sprint,
           netInfo,
           debugMode,
-          getLastHitAngle()
+          getLastHitAngle(),
+          netClient.getPing()
         );
       }
     });

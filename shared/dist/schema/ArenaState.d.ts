@@ -24,6 +24,8 @@ export declare class PlayerStateSchema extends Schema {
     currentWeapon: string;
     ammo: number;
     maxAmmo: number;
+    /** Server tick when player last fired. Used for 3P muzzle flash. */
+    lastShotTick: number;
 }
 export declare class ArenaState extends Schema {
     players: MapSchema<PlayerStateSchema, string>;

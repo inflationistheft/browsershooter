@@ -35,6 +35,8 @@ export class PlayerStateSchema extends Schema {
         this.currentWeapon = "rifle";
         this.ammo = 30;
         this.maxAmmo = 30;
+        /** Server tick when player last fired. Used for 3P muzzle flash. */
+        this.lastShotTick = 0;
     }
 }
 __decorate([
@@ -113,6 +115,10 @@ __decorate([
     type("number"),
     __metadata("design:type", Object)
 ], PlayerStateSchema.prototype, "maxAmmo", void 0);
+__decorate([
+    type("number"),
+    __metadata("design:type", Object)
+], PlayerStateSchema.prototype, "lastShotTick", void 0);
 export class ArenaState extends Schema {
     constructor() {
         super(...arguments);

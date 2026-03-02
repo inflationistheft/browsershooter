@@ -1,5 +1,6 @@
 /**
  * POV viewmodel setup: arms, weapon, two-point anchoring.
+ * ViewmodelRoot (under camera) holds arms + weapon; procedural movement applies to root.
  */
 
 import * as THREE from "three";
@@ -21,6 +22,12 @@ import {
   applySkinToModel,
 } from "../systems/assetLoader/AssetLoader.js";
 import type { FPSCamera } from "../systems/camera/FPSCamera.js";
+import {
+  createViewmodelMovementState,
+  updateViewmodelMovement,
+  type ViewmodelMovementInput,
+  type ViewmodelMovementState,
+} from "./ViewmodelMovement.js";
 
 /** POV offsets (x, y, z, rotX, rotY, rotZ, scale). */
 export const POV_DEFAULT = {
@@ -35,9 +42,13 @@ export const POV_DEFAULT = {
 
 export interface ViewmodelState {
   playerViewModel: THREE.Object3D;
+  /** Root under camera; procedural Bob/Sway/Recoil/Slide apply here. */
+  viewmodelRoot: THREE.Group;
   viewmodelHolder: THREE.Group;
   viewmodelIsArmsOnly: boolean;
   weaponContainerRef: THREE.Group | null;
+  /** Muzzle socket from weapon GLB (getObjectByName "muzzle"). Fallback: weapon root. */
+  muzzleNodeRef: THREE.Object3D | null;
   twoPointRefs: {
     rightHand: THREE.Bone;
     leftHand: THREE.Bone;
@@ -45,6 +56,8 @@ export interface ViewmodelState {
     gLeftLocal: THREE.Vector3;
   } | null;
   weaponPovDecoupled: boolean;
+  /** Persists across frames for procedural Bob/Sway/Recoil/Slide. */
+  movementState: ViewmodelMovementState;
 }
 
 export interface InitViewmodelResult {
@@ -98,6 +111,11 @@ export async function initViewmodel(
     viewmodelModel.scale.setScalar(1);
   }
 
+  const viewmodelRoot = new THREE.Group();
+  viewmodelRoot.position.set(0, 0, 0);
+  viewmodelRoot.quaternion.identity();
+  viewmodelRoot.scale.setScalar(1);
+
   const viewmodelHolder = new THREE.Group();
   viewmodelHolder.add(viewmodelModel);
   if (isArmsOnly) {
@@ -110,7 +128,8 @@ export async function initViewmodel(
     viewmodelHolder.quaternion.identity();
     viewmodelHolder.scale.setScalar(1);
   }
-  camera.add(viewmodelHolder);
+  viewmodelRoot.add(viewmodelHolder);
+  camera.add(viewmodelRoot);
 
   if (import.meta.env?.DEV) {
     const meshNames: string[] = [];
@@ -132,6 +151,7 @@ export async function initViewmodel(
   });
 
   let weaponContainerRef: THREE.Group | null = null;
+  let muzzleNodeRef: THREE.Object3D | null = null;
   let twoPointRefs: ViewmodelState["twoPointRefs"] = null;
   let weaponPovDecoupled = false;
   let weaponTemplate3P: THREE.Object3D | null = null;
@@ -161,6 +181,10 @@ export async function initViewmodel(
       });
 
       const gripleftNode = weaponScene.getObjectByName("gripleft");
+      muzzleNodeRef =
+        weaponScene.getObjectByName("muzzle") ??
+        weaponScene.getObjectByName("Muzzle") ??
+        weaponScene;
       const weaponContainer = new THREE.Group();
       weaponContainer.add(weaponScene);
       weaponContainerRef = weaponContainer;
@@ -176,12 +200,12 @@ export async function initViewmodel(
       if (isArmsOnly) {
         twoPointRefs = null;
         weaponPovDecoupled = true;
-        cameraSystem.getCamera().add(weaponContainer);
+        viewmodelRoot.add(weaponContainer);
         const grip = clientConfig.viewmodelWeaponGripOffset ?? { x: 0, y: 0, z: 0 };
         weaponScene.position.set(grip.x, grip.y, grip.z);
         weaponScene.scale.setScalar(baseScale);
         if (import.meta.env?.DEV) {
-          console.info("[Viewmodel] POV weapon decoupled (camera child), scale:", baseScale);
+          console.info("[Viewmodel] POV weapon under ViewmodelRoot, scale:", baseScale);
         }
       } else if (useTwoPoint && rightHandBone && leftHandBone && gripleftNode) {
         const gLeftLocal = gripleftNode.position.clone();
@@ -252,11 +276,14 @@ export async function initViewmodel(
     viewmodelAnimations,
     viewmodelState: {
       playerViewModel: viewmodelModel,
+      viewmodelRoot,
       viewmodelHolder,
       viewmodelIsArmsOnly: isArmsOnly,
       weaponContainerRef,
+      muzzleNodeRef,
       twoPointRefs,
       weaponPovDecoupled,
+      movementState: createViewmodelMovementState(),
     },
     weaponTemplate3P,
   };
@@ -269,14 +296,32 @@ const _quat = new THREE.Quaternion();
 const _quatB = new THREE.Quaternion();
 
 /** Update POV weapon/arms each render frame. Call after mixer.update. */
-export function updateViewmodelFrame(state: ViewmodelState): void {
-  const { viewmodelHolder, viewmodelIsArmsOnly, weaponContainerRef, twoPointRefs, weaponPovDecoupled, playerViewModel } = state;
+export function updateViewmodelFrame(
+  state: ViewmodelState,
+  movementInput?: ViewmodelMovementInput
+): void {
+  const {
+    viewmodelRoot,
+    viewmodelHolder,
+    viewmodelIsArmsOnly,
+    weaponContainerRef,
+    twoPointRefs,
+    weaponPovDecoupled,
+    playerViewModel,
+    movementState,
+  } = state;
 
   if (viewmodelHolder && viewmodelIsArmsOnly) {
     const cfg = POV_DEFAULT;
     viewmodelHolder.position.set(cfg.x, cfg.y, cfg.z);
     viewmodelHolder.rotation.set(cfg.rotX, cfg.rotY, cfg.rotZ);
     viewmodelHolder.scale.setScalar(cfg.scale);
+  }
+
+  if (viewmodelIsArmsOnly && movementInput && viewmodelRoot) {
+    const { position, rotation } = updateViewmodelMovement(movementState, movementInput);
+    viewmodelRoot.position.copy(position);
+    viewmodelRoot.rotation.set(rotation.x, rotation.y, rotation.z, "YXZ");
   }
 
   if (viewmodelIsArmsOnly && weaponContainerRef && weaponPovDecoupled) {

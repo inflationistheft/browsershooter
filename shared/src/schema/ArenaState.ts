@@ -26,6 +26,8 @@ export class PlayerStateSchema extends Schema {
   @type("string") currentWeapon = "rifle";
   @type("number") ammo = 30;
   @type("number") maxAmmo = 30;
+  /** Server tick when player last fired. Used for 3P muzzle flash. */
+  @type("number") lastShotTick = 0;
 }
 
 export class ArenaState extends Schema {

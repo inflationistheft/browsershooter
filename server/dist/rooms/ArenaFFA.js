@@ -16,6 +16,7 @@ export class ArenaFFARoom extends Room {
         this.setState(new ArenaState());
         this.setSimulationInterval((dt) => this.tick(dt), serverConfig.tickMs);
         this.onMessage("input", (client, message) => this.onInput(client, message));
+        this.onMessage("ping", (client, message) => client.send("pong", message));
     }
     /** Spawn offsets (x, y, z). Players spawn at random point on join/respawn. */
     static { this.SPAWN_OFFSETS = [
@@ -62,8 +63,6 @@ export class ArenaFFARoom extends Room {
             return;
         const input = message;
         ext.lastInput = input;
-        if (input.shoot === true)
-            ext.pendingShoot = true;
     }
     tick(_dt) {
         this._tickCount++;
@@ -207,7 +206,8 @@ export class ArenaFFARoom extends Room {
             else {
                 player.animationState = "idle";
             }
-            const shouldShoot = (lastInput?.shoot ?? false) || (ext.pendingShoot ?? false);
+            /** Only shoot when input has shoot and cooldown allows. No queuing: clicks during cooldown are ignored. */
+            const shouldShoot = lastInput?.shoot ?? false;
             const infiniteAmmo = (lastInput?.debugMode ?? false) ||
                 process.env.DEBUG_INFINITE_AMMO === "1" ||
                 process.env.DEBUG_HITSCAN === "1";
@@ -218,8 +218,8 @@ export class ArenaFFARoom extends Room {
                 shootCooldownOk) {
                 if (!infiniteAmmo)
                     player.ammo--;
-                ext.pendingShoot = false;
                 ext.shootCooldownTicks = SHOT_INTERVAL_TICKS;
+                player.lastShotTick = this._tickCount;
                 const crouching = player.movementState === "grounded" && (lastInput?.slide ?? false);
                 const hitResult = this.hitscanRaycast(shooterId, player, crouching, lastInput);
                 if (hitResult) {
