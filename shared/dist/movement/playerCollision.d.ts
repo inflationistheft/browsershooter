@@ -22,5 +22,5 @@ export interface PlayerCollisionMap {
  * Resolve player-player overlaps in XZ plane. Mutates positions and velocities.
  * Excludes inactive players (e.g. dead). Iterates to handle 3+ player stacks.
  */
-export declare function resolvePlayerCollisions(players: PlayerCollisionMap, isActive: (id: string) => boolean, playerRadius: number, iterations?: number): void;
+export declare function resolvePlayerCollisions(players: PlayerCollisionMap, isActive: (id: string) => boolean, playerRadius: number, playerHeight: number, iterations?: number): void;
 //# sourceMappingURL=playerCollision.d.ts.map

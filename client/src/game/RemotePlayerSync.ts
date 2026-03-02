@@ -47,6 +47,8 @@ export class RemotePlayerSync {
   private remotePlayerMuzzleFlashes = new Map<string, MuzzleFlashEffect>();
   private muzzleFlashTextures: THREE.Texture[] = [];
   private hasAppliedInitialSpawn = false;
+  // Track last known health per player to detect respawns (dead -> alive transition)
+  private lastHealthByPlayer = new Map<string, number>();
 
   private _handPos3p = new THREE.Vector3();
   private _handQuat3p = new THREE.Quaternion();
@@ -287,17 +289,29 @@ export class RemotePlayerSync {
         mesh = this.remotePlayerMeshes.get(key);
       }
       if (mesh) {
+        const prevHealth = this.lastHealthByPlayer.get(key);
+        const justRespawned =
+          prevHealth !== undefined && prevHealth <= 0 && player.health > 0;
+
         mesh.visible = player.health > 0;
         const weaponRef = this.remotePlayerWeaponContainers.get(key);
         if (weaponRef) weaponRef.container.visible = mesh.visible;
+
         if (mesh.visible) {
-          mesh.position.lerp(
-            new THREE.Vector3(player.x, player.y, player.z),
-            alpha
-          );
-          const targetYaw = player.yaw + Math.PI;
-          const dy = ((targetYaw - mesh.rotation.y + Math.PI) % (2 * Math.PI)) - Math.PI;
-          mesh.rotation.y += dy * alpha;
+          if (justRespawned) {
+            // Hard snap remote player to server spawn position/orientation to avoid visible slide from old position
+            mesh.position.set(player.x, player.y, player.z);
+            const targetYaw = player.yaw + Math.PI;
+            mesh.rotation.set(0, targetYaw, 0);
+          } else {
+            mesh.position.x += (player.x - mesh.position.x) * alpha;
+            mesh.position.y += (player.y - mesh.position.y) * alpha;
+            mesh.position.z += (player.z - mesh.position.z) * alpha;
+            const targetYaw = player.yaw + Math.PI;
+            const dy = ((targetYaw - mesh.rotation.y + Math.PI) % (2 * Math.PI)) - Math.PI;
+            mesh.rotation.y += dy * alpha;
+          }
+
           const mixer = this.remotePlayerMixers.get(key);
           if (mixer) {
             const clipId = player.animationState || "idle";
@@ -339,6 +353,8 @@ export class RemotePlayerSync {
             }
           }
         }
+
+        this.lastHealthByPlayer.set(key, player.health);
       }
     });
 

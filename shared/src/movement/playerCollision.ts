@@ -33,6 +33,7 @@ export function resolvePlayerCollisions(
   players: PlayerCollisionMap,
   isActive: (id: string) => boolean,
   playerRadius: number,
+  playerHeight: number,
   iterations: number = DEFAULT_ITERATIONS
 ): void {
   const ids: string[] = [];
@@ -51,6 +52,14 @@ export function resolvePlayerCollisions(
       for (let j = i + 1; j < ids.length; j++) {
         const bId = ids[j];
         const b = players.get(bId)!;
+
+        // Skip if players don't overlap vertically (allows jumping over others).
+        const aMinY = a.y;
+        const aMaxY = a.y + playerHeight;
+        const bMinY = b.y;
+        const bMaxY = b.y + playerHeight;
+        const overlapY = Math.min(aMaxY, bMaxY) - Math.max(aMinY, bMinY);
+        if (overlapY <= 0) continue;
 
         const dx = b.x - a.x;
         const dz = b.z - a.z;

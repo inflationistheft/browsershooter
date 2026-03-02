@@ -8,6 +8,7 @@ import {
   resolveAnimationClipId,
   TICK_RATE,
   PLAYER_RADIUS,
+  PLAYER_HEIGHT,
   PLAYER_EYE_HEIGHT,
   CROUCH_EYE_HEIGHT,
   HITSCAN_RANGE,
@@ -33,7 +34,7 @@ import {
   tickMovementTimers,
   resolvePlayerCollisions,
 } from "shared";
-import type { PlayerInput } from "shared";
+import type { PlayerInput, KillEventPayload, WeaponId } from "shared";
 import { ArenaState, PlayerStateSchema } from "shared";
 import { serverConfig } from "../config/index.js";
 import {
@@ -291,6 +292,7 @@ export class ArenaFFARoom extends Room<ArenaState> {
         if (hitResult) {
           const target = this.state.players.get(hitResult.targetId);
           if (target) {
+            const wasAlive = target.health > 0;
             const headDamage =
               target.shield > 0
                 ? HITSCAN_BODY_DAMAGE
@@ -330,6 +332,15 @@ export class ArenaFFARoom extends Room<ArenaState> {
                 damage: actualDamage,
               });
             }
+            if (wasAlive && target.health <= 0) {
+              const payload: KillEventPayload = {
+                killerId: shooterId,
+                victimId: hitResult.targetId,
+                weaponId: "rifle" as WeaponId,
+                isHeadshot: hitResult.hitboxType === "head",
+              };
+              this.broadcastKillEvent(payload);
+            }
             if (process.env.DEBUG_HITSCAN) {
               console.log(
                 `[ArenaFFA] Hit: ${shooterId} -> ${hitResult.targetId} (${hitResult.hitboxType})`
@@ -349,7 +360,8 @@ export class ArenaFFARoom extends Room<ArenaState> {
     resolvePlayerCollisions(
       this.state.players,
       (id) => (this.state.players.get(id)?.health ?? 0) > 0,
-      PLAYER_RADIUS
+      PLAYER_RADIUS,
+      PLAYER_HEIGHT
     );
   }
 
@@ -586,5 +598,9 @@ export class ArenaFFARoom extends Room<ArenaState> {
     });
 
     return bestId ? { targetId: bestId, hitboxType: bestType } : null;
+  }
+
+  private broadcastKillEvent(payload: KillEventPayload): void {
+    this.broadcast("kill", payload);
   }
 }

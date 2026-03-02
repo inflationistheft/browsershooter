@@ -87,6 +87,7 @@ function getSimulatedMovementInput(
     yaw,
     pitch,
     shotThisFrame,
+    reloadProgress: 0,
   };
 }
 

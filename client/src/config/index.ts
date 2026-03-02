@@ -64,6 +64,15 @@ export interface PovMovementTuning {
   slideReleaseBumpTau?: number;
   slideInTau: number;
   slideOutTau: number;
+  // Reload override (procedural, not GLB)
+  reloadYOffset?: number;
+  reloadZOffset?: number;
+  reloadPullback?: number;
+  reloadPitchDown?: number;
+  reloadRoll?: number;
+  reloadOvershoot?: number;
+  swayReloadReduce?: number;
+  idleReloadReduce?: number;
 }
 
 export interface ThirdPersonWeaponOffset {
@@ -116,12 +125,8 @@ export const clientConfig = {
   /** Skin ID for player (PNG in /models/skins/{id}.png). Empty = use embedded GLB texture. Default: orange. */
   playerSkin: ((import.meta as unknown as { env?: { VITE_PLAYER_SKIN?: string } }).env?.VITE_PLAYER_SKIN ?? "orange").trim(),
 
-  /** Muzzle flash: PNG URLs. Place 2–3 in /models/effects/. Falls back to procedural texture if load fails. */
-  muzzleFlashUrls: [
-    "/models/effects/muzzle1.png",
-    "/models/effects/muzzle2.png",
-    "/models/effects/muzzle3.png",
-  ] as string[],
+  /** Muzzle flash: PNG URLs. Empty = use procedural textures only. */
+  muzzleFlashUrls: [] as string[],
   /** Muzzle flash display duration (ms). ~50ms is visible, 30ms very brief. */
   muzzleFlashDurationMs: 50,
   /** Muzzle flash sprite size in world units (POV). */
@@ -211,6 +216,15 @@ export const clientConfig = {
       slideOutTau: 0.28,
       bobCrouchFreqMultiplier: 1,
       bobCrouchAmpMultiplier: 1,
+      // Reload override (Tilt&Lower -> Hold -> Return)
+      reloadYOffset: -0.12,
+      reloadZOffset: 0.12,
+      reloadPullback: 0.06,
+      reloadPitchDown: -0.3,
+      reloadRoll: 0.4,
+      reloadOvershoot: 0.08,
+      swayReloadReduce: 0.8,
+      idleReloadReduce: 0.4,
     } as PovMovementTuning,
     /** Remote player interpolation: 1 - exp(-dt/TAU). ~100ms to 95% of target. */
     remoteInterpTau: 0.05,

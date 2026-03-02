@@ -53,14 +53,34 @@ import {
   MAX_HEALTH,
   SHOT_INTERVAL_TICKS,
   RELOAD_TICKS,
+  type KillEventPayload,
 } from "shared";
 import { RemotePlayerSync } from "./game/RemotePlayerSync.js";
+import { createPauseMenu, type PauseMenuHandle } from "./systems/ui/PauseMenu.js";
+import {
+  createSettingsMenu,
+  type SettingsMenuHandle,
+  SettingsTab,
+} from "./systems/ui/SettingsMenu.js";
+import {
+  getPerformanceSettings,
+  applyPerformanceSettings,
+  type PerformanceSettings,
+  getInputSettings,
+  applyInputSettings,
+  type InputSettings,
+} from "./config/clientSettings.js";
 import {
   initViewmodel,
   updateViewmodelFrame,
   type ViewmodelState,
 } from "./game/ViewmodelSetup.js";
 import type { ViewmodelMovementInput } from "./game/ViewmodelMovement.js";
+import {
+  createKillfeed,
+  handleKillEvent,
+  updateKillfeed,
+} from "./systems/ui/Killfeed.js";
 
 const app = document.getElementById("app");
 if (!app) throw new Error("No #app");
@@ -82,12 +102,19 @@ if (tunerParam === "1") {
   }
 
   const { w: initW, h: initH } = getCanvasSize();
-  const sceneManager = new SceneManager(canvas);
+
+  const initialPerf: PerformanceSettings = getPerformanceSettings();
+  const sceneManager = new SceneManager(canvas, {
+    antialias: initialPerf.aaEnabled,
+    renderScale: initialPerf.renderScale,
+  });
   const cameraSystem = new FPSCamera(90, initW / initH || 16 / 9, 0.1, 1000);
   sceneManager.getScene().add(cameraSystem.getCamera());
   sceneManager.resize(initW, initH);
   cameraSystem.resize(initW, initH);
   const input = new InputSampler();
+  const initialInput: InputSettings = getInputSettings();
+  input.setMouseSensitivity(initialInput.mouseSensitivity);
   input.requestPointerLock(canvas);
 
   const movement = new FPSMovementController();
@@ -120,7 +147,85 @@ if (tunerParam === "1") {
   createHUD(app);
   createPlayerHealthBars(app);
   createHitIndicator(app);
+  createKillfeed(app);
   if (clientConfig.debugOverlay) createDebugOverlay(app);
+
+  enum UiState {
+    Playing = "playing",
+    Paused = "paused",
+    Settings = "settings",
+  }
+
+  let uiState: UiState = UiState.Playing;
+  let pauseMenuHandle: PauseMenuHandle | null = null;
+  let settingsMenuHandle: SettingsMenuHandle | null = null;
+
+  function setUiState(next: UiState): void {
+    uiState = next;
+  }
+
+  function enterPauseMenu(): void {
+    if (uiState === UiState.Paused) return;
+    if (!pauseMenuHandle) {
+      pauseMenuHandle = createPauseMenu(app, {
+        onResume: () => exitToGame(),
+        onBackToLobby: () => {
+          netClient.disconnect();
+          window.location.reload();
+        },
+        onOpenSettings: () => openSettings(),
+      });
+    }
+    pauseMenuHandle.show();
+    settingsMenuHandle?.hide();
+    setUiState(UiState.Paused);
+    if (input.isPointerLocked()) document.exitPointerLock();
+  }
+
+  function exitToGame(): void {
+    if (uiState === UiState.Playing) return;
+    pauseMenuHandle?.hide();
+    settingsMenuHandle?.hide();
+    setUiState(UiState.Playing);
+    input.requestPointerLock(canvas);
+  }
+
+  function openSettings(): void {
+    if (!settingsMenuHandle) {
+      settingsMenuHandle = createSettingsMenu(app, {
+        onClose: () => {
+          if (uiState === UiState.Settings) {
+            enterPauseMenu();
+          }
+        },
+        onApplyPerformance: (perf) => {
+          applyPerformanceSettings(perf);
+          sceneManager.setPerformance(perf);
+        },
+        onApplyMouse: (inputSettings) => {
+          applyInputSettings(inputSettings);
+          input.setMouseSensitivity(inputSettings.mouseSensitivity);
+        },
+      });
+    }
+    settingsMenuHandle.show(SettingsTab.Performance);
+    pauseMenuHandle?.hide();
+    setUiState(UiState.Settings);
+  }
+
+  window.addEventListener("keydown", (e) => {
+    if (e.code !== "Escape") return;
+    if (uiState === UiState.Playing) {
+      e.preventDefault();
+      enterPauseMenu();
+    } else if (uiState === UiState.Paused) {
+      e.preventDefault();
+      exitToGame();
+    } else if (uiState === UiState.Settings) {
+      e.preventDefault();
+      enterPauseMenu();
+    }
+  });
 
   const debugHitboxes = new DebugHitboxVisualization(sceneManager.getScene());
   let debugMode = false;
@@ -135,6 +240,11 @@ if (tunerParam === "1") {
   let clientReloadTicks = 0;
 
   let currentEyeHeight = PLAYER_EYE_HEIGHT;
+
+  // Tracks last known local player health to detect respawns (dead -> alive transition)
+  let lastLocalHealth: number | null = null;
+  // Time window after local respawn during which camera should not smooth/lerp
+  let localRespawnNoLerpTime = 0;
 
   let playerViewModel: THREE.Object3D | null = null;
   let viewmodelState: ViewmodelState | null = null;
@@ -196,6 +306,10 @@ if (tunerParam === "1") {
   loop
     .setTickCallback((dt) => {
       const state = input.getState();
+      if (uiState !== UiState.Playing) {
+        input.tick();
+        return;
+      }
       shotThisFrame = false;
       if (clientShootCooldownTicks > 0) clientShootCooldownTicks--;
       if (clientReloadTicks > 0) clientReloadTicks--;
@@ -218,6 +332,24 @@ if (tunerParam === "1") {
       if (room) {
         const localPlayer = room.state.players.get(room.sessionId);
         if (localPlayer) {
+          // Detect respawn: previously dead (<=0) and now alive (>0)
+          if (lastLocalHealth !== null && lastLocalHealth <= 0 && localPlayer.health > 0) {
+            // Hard-sync local movement to server spawn position/orientation
+            remotePlayerSync.syncLocalSpawnFromServer(room);
+            const respawnSnap = movement.getSnapshot();
+            currentEyeHeight = respawnSnap.crouching ? CROUCH_EYE_HEIGHT : PLAYER_EYE_HEIGHT;
+            cameraSystem.setTargetPosition(
+              respawnSnap.position.x,
+              respawnSnap.position.y + currentEyeHeight,
+              respawnSnap.position.z
+            );
+            cameraSystem.setRotation(respawnSnap.yaw, respawnSnap.pitch);
+            cameraSystem.snapToTarget();
+            // For a short period after respawn, keep camera snapped (no smoothing)
+            localRespawnNoLerpTime = 0.3;
+          }
+          lastLocalHealth = localPlayer.health;
+
           const ammo = localPlayer.ammo;
           const maxAmmo = localPlayer.maxAmmo;
           const infiniteAmmo = debugMode;
@@ -258,13 +390,21 @@ if (tunerParam === "1") {
       if (localPlayerMixer) {
         playerAnimationSystem.playStaticIdlePose(localPlayerMixer);
       }
-      cameraSystem.update(dt);
+      if (localRespawnNoLerpTime > 0) {
+        cameraSystem.snapToTarget();
+        localRespawnNoLerpTime -= dt;
+        if (localRespawnNoLerpTime < 0) localRespawnNoLerpTime = 0;
+      } else {
+        cameraSystem.update(dt);
+      }
       if (localPlayerMixer) localPlayerMixer.update(dt);
       if (playerViewModel) playerViewModel.updateMatrixWorld(true);
       if (viewmodelState) {
         if (shotThisFrame && viewmodelState.muzzleNodeRef && muzzleFlashPov) {
           muzzleFlashPov.trigger(viewmodelState.muzzleNodeRef);
         }
+        const reloadProgress =
+          clientReloadTicks > 0 ? 1 - clientReloadTicks / RELOAD_TICKS : 0;
         const movementInput: ViewmodelMovementInput = {
           dt,
           velocity: snap.velocity,
@@ -273,6 +413,7 @@ if (tunerParam === "1") {
           yaw: snap.yaw,
           pitch: snap.pitch,
           shotThisFrame,
+          reloadProgress,
         };
         updateViewmodelFrame(viewmodelState, movementInput);
         if (muzzleFlashPov) muzzleFlashPov.update(dt * 1000);
@@ -360,6 +501,7 @@ if (tunerParam === "1") {
       const maxAmmo = localPlayer?.maxAmmo ?? WEAPON_STUB.maxAmmo;
       updateHUD(shield, hp, ammo, maxAmmo, debugMode);
       updateHitIndicators(snap.yaw, snap.pitch, dt, debugMode);
+      updateKillfeed(dt);
       if (clientConfig.debugOverlay) {
         const netInfo =
           room !== null
@@ -403,6 +545,9 @@ if (tunerParam === "1") {
             onHitReceived(payload.dirX, payload.dirY, payload.dirZ);
           }
         );
+        room.onMessage("kill", (payload: KillEventPayload) => {
+          handleKillEvent(room, payload);
+        });
         await remotePlayerSync.waitForLocalSpawnAndSync(room);
       }
     }

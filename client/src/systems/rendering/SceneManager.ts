@@ -5,14 +5,23 @@
 import * as THREE from "three";
 import { ARENA_SIZE, ARENA_HALF } from "shared";
 
+export interface ScenePerformanceOptions {
+  antialias: boolean;
+  renderScale: number;
+}
+
 export class SceneManager {
   readonly scene = new THREE.Scene();
   readonly renderer: THREE.WebGLRenderer;
   private readonly floor: THREE.Mesh;
+  private renderScale = 1;
 
-  constructor(canvas: HTMLCanvasElement) {
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  constructor(canvas: HTMLCanvasElement, perf?: ScenePerformanceOptions) {
+    const antialias = perf?.antialias ?? true;
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias });
+    this.renderScale = perf?.renderScale && perf.renderScale > 0 ? perf.renderScale : 1;
+    const pixelRatio = Math.min(window.devicePixelRatio * this.renderScale, 2);
+    this.renderer.setPixelRatio(pixelRatio);
     const w = canvas.clientWidth || window.innerWidth;
     const h = canvas.clientHeight || window.innerHeight;
     this.renderer.setSize(w, h);
@@ -100,5 +109,11 @@ export class SceneManager {
 
   getScene(): THREE.Scene {
     return this.scene;
+  }
+
+  setPerformance(perf: { renderScale: number; aaEnabled: boolean }): void {
+    this.renderScale = perf.renderScale > 0 ? perf.renderScale : 1;
+    const pixelRatio = Math.min(window.devicePixelRatio * this.renderScale, 2);
+    this.renderer.setPixelRatio(pixelRatio);
   }
 }

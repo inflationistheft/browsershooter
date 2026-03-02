@@ -194,4 +194,9 @@ export class InputSampler {
   consumeOneShoot(): void {
     this.state.shoot = false;
   }
+
+  setMouseSensitivity(multiplier: number): void {
+    const clamped = Math.max(0.2, Math.min(3, multiplier));
+    this.sensitivity = 0.002 * clamped;
+  }
 }

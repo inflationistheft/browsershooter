@@ -14,7 +14,8 @@ export const movementTuning = {
   airAccel: 30,
   airMaxSpeed: 14,
   gravity: 27,
-  jumpForce: 11,
+  /** Halo-näher: Füße knapp über Spielerhöhe (~2.0–2.1 m). */
+  jumpForce: 10.5,
   coyoteTime: 0.12,
   jumpBufferTime: 0.12,
   /** Slightly faster than sprint (11); Apex-like modest boost. */
@@ -32,7 +33,8 @@ export const movementTuning = {
   /** Grace (s) after releasing Shift – can still enter slide while speed is high. */
   slideSprintReleaseGrace: 0.2,
   maxSpeedCrouch: 3,
-  slideJumpMultiplier: 1.25,
+  /** Moderater Slide-Jump-Boost (ca. 1.5× Spielerhöhe statt ~2×). */
+  slideJumpMultiplier: 1.15,
   /** Cooldown in seconds before slide jump can be used again. */
   slideJumpCooldown: 2,
   /** Cooldown in seconds after slide ends before entering a new slide (prevents infinite re-entry while holding Shift). */

@@ -17,6 +17,8 @@ export interface ViewmodelMovementInput {
   yaw: number;
   pitch: number;
   shotThisFrame: boolean;
+  /** 0..1 reload timeline (0 = none, 1 = end of reload). */
+  reloadProgress: number;
 }
 
 export interface ViewmodelMovementState {
@@ -283,16 +285,19 @@ export function updateViewmodelMovement(
   const xMult = 1 + strafeWeight * (cfg.strafeBobXBoost ?? 0.5);
   const rollMult = 1 + strafeWeight * (cfg.strafeBobRollBoost ?? 0.8);
 
+  const reloadT = Math.max(0, Math.min(1, input.reloadProgress ?? 0));
+
   // --- WalkBob: Y/X same freq (sin phase), strafe reduces Y and boosts X/roll ---
   const bobSlideMult = 1 - state.slideBlend * (cfg.bobSlideReduce ?? 0.98);
+  const bobReloadMult = 1 - reloadT;
   const phase = state.bobPhase;
   const bobY =
-    cfg.bobAmplitudeY * ampBlend * wY * yMult * Math.sin(phase) * bobSlideMult;
+    cfg.bobAmplitudeY * ampBlend * wY * yMult * Math.sin(phase) * bobSlideMult * bobReloadMult;
   const bobX =
-    cfg.bobAmplitudeX * ampBlend * wX * xMult * Math.sin(phase + cfg.bobPhaseOffsetX) * bobSlideMult;
+    cfg.bobAmplitudeX * ampBlend * wX * xMult * Math.sin(phase + cfg.bobPhaseOffsetX) * bobSlideMult * bobReloadMult;
   const bobRoll =
-    cfg.bobAmplitudeRoll * ampBlend * wRoll * rollMult * Math.sin(phase + 0.7) * bobSlideMult;
-  const bobPitch = cfg.bobAmplitudePitch * ampBlend * Math.sin(phase + 0.4) * bobSlideMult;
+    cfg.bobAmplitudeRoll * ampBlend * wRoll * rollMult * Math.sin(phase + 0.7) * bobSlideMult * bobReloadMult;
+  const bobPitch = cfg.bobAmplitudePitch * ampBlend * Math.sin(phase + 0.4) * bobSlideMult * bobReloadMult;
 
   // --- Sway: smooth mouse deltas first (avoids tick-rate stutter), then target + spring back ---
   let yawDelta = 0;
@@ -312,6 +317,7 @@ export function updateViewmodelMovement(
 
   const swayMult =
     (1 - state.slideBlend * cfg.swaySlideReduce) *
+    (1 - reloadT * (cfg.swayReloadReduce ?? 0.8)) *
     (isAirborne ? (cfg.swayAirborneReduce ?? 0.5) : 1);
   const targetSwayYaw = -state.smoothedYawDelta * cfg.swayLookFactor * swayMult;
   const targetSwayPitch = -state.smoothedPitchDelta * cfg.swayLookFactor * swayMult;
@@ -321,17 +327,18 @@ export function updateViewmodelMovement(
   state.swayPitch *= cfg.swayReturnDamping;
 
   // --- Recoil: one-shot impulse + spring back within shot interval ---
-  // Cap recovery tau so animation finishes before next possible shot (no desync).
+  // Cap recovery tau so animation finishes before next possible shot (no desync) and avoid zero.
   const shotIntervalSec = 1 / FIRE_RATE;
   const maxRecoveryTau = shotIntervalSec / 3; // ~95% decay within shot interval
-  const recoilTau = Math.min(cfg.recoilRecoveryTau, maxRecoveryTau);
+  const baseRecoilTau = Math.max(cfg.recoilRecoveryTau, 1e-4);
+  const recoilTau = Math.min(baseRecoilTau, maxRecoveryTau);
 
   if (shotThisFrame) {
     state.recoilPitch += cfg.recoilKickPitch;
     state.recoilPullback += cfg.recoilPullback;
     state.recoilRoll += (Math.random() - 0.5) * cfg.recoilRollVariation;
   }
-  const recoilMult = 1 - state.slideBlend * cfg.recoilSlideReduce;
+  const recoilMult = (1 - state.slideBlend * cfg.recoilSlideReduce) * (1 - reloadT);
   state.recoilPitch = lerp(state.recoilPitch, 0, dt / recoilTau) * recoilMult;
   state.recoilPullback = lerp(state.recoilPullback, 0, dt / recoilTau);
   state.recoilRoll = lerp(state.recoilRoll, 0, dt / recoilTau);
@@ -342,6 +349,36 @@ export function updateViewmodelMovement(
   const slideZ = state.slideBlend * cfg.slideZOffset;
   const slideRotZ = state.slideBlend * cfg.slideInwardTilt + slideWiggleRoll;
   const slidePitch = state.slideBlend * (cfg.slidePitchDown ?? -0.1);
+
+  // --- Reload override: 3 phases Tilt&Lower -> Hold -> Return ---
+  const isReloading = reloadT > 0.0001;
+  let reloadPoseBlend = 0;
+  if (isReloading) {
+    if (reloadT < 0.25) {
+      const t = reloadT / 0.25;
+      reloadPoseBlend = t * t; // ease-in
+    } else if (reloadT < 0.7) {
+      reloadPoseBlend = 1;
+    } else {
+      const u = (reloadT - 0.7) / 0.3;
+      const s = Math.max(0, Math.min(1, u));
+      const smooth = s * s * (3 - 2 * s); // smoothstep
+      const overshootAmp = cfg.reloadOvershoot ?? 0.08;
+      reloadPoseBlend = (1 - smooth) + overshootAmp * (1 - smooth) * (1 - smooth);
+    }
+  }
+
+  const reloadYOffset = cfg.reloadYOffset ?? -0.12;
+  const reloadZOffset = cfg.reloadZOffset ?? 0.12;
+  const reloadPullback = cfg.reloadPullback ?? 0.06;
+  const reloadPitchDown = cfg.reloadPitchDown ?? -0.3;
+  const reloadRoll = cfg.reloadRoll ?? 0.4;
+
+  const reloadY = reloadPoseBlend * reloadYOffset;
+  const reloadZ = reloadPoseBlend * reloadZOffset;
+  const reloadPull = reloadPoseBlend * reloadPullback;
+  const reloadPitch = reloadPoseBlend * reloadPitchDown;
+  const reloadRollZ = reloadPoseBlend * reloadRoll;
 
   // --- Idle breathing: slow, organic, not pure sinus ---
   state.idleTime += dt;
@@ -358,6 +395,7 @@ export function updateViewmodelMovement(
   const idleBlend =
     (1 - state.slideBlend) *
     (1 - state.moveFactor * (cfg.idleWalkReduce ?? 0.85)) *
+    (1 - reloadT * (cfg.idleReloadReduce ?? 0.4)) *
     (isAirborne ? (cfg.idleAirborneReduce ?? 0.3) : 1);
   const ampY = (cfg.idleBreathingAmplitudeY ?? 0.002) * idleBlend;
   const ampX = (cfg.idleBreathingAmplitudeX ?? 0.0006) * idleBlend;
@@ -370,13 +408,13 @@ export function updateViewmodelMovement(
   // Camera space: +X=right, +Y=up, +Z=back (pullback = weapon toward player)
   state._targetPos.set(
     bobX + state.strafeLeanX + idlePosX,
-    bobY + slideY + idlePosY + jumpPosY,
-    state.recoilPullback + slideZ + state.forwardLeanZ + jumpPosZ
+    bobY + slideY + reloadY + idlePosY + jumpPosY,
+    state.recoilPullback + reloadPull + slideZ + reloadZ + state.forwardLeanZ + jumpPosZ
   );
   state._targetRot.set(
-    state.swayPitch + state.recoilPitch + bobPitch + idlePitch + slidePitch,
+    state.swayPitch + state.recoilPitch + bobPitch + idlePitch + slidePitch + reloadPitch,
     state.swayYaw,
-    slideRotZ + state.recoilRoll + bobRoll + state.strafeLeanRoll + idleRoll + landingRoll,
+    slideRotZ + reloadRollZ + state.recoilRoll + bobRoll + state.strafeLeanRoll + idleRoll + landingRoll,
     "YXZ"
   );
 
@@ -450,4 +488,12 @@ const DEFAULT_POV_MOVEMENT = {
   slideOutTau: 0.28,
   bobCrouchFreqMultiplier: 1,
   bobCrouchAmpMultiplier: 1,
+  reloadYOffset: -0.12,
+  reloadZOffset: 0.12,
+  reloadPullback: 0.06,
+  reloadPitchDown: -0.3,
+  reloadRoll: 0.4,
+  reloadOvershoot: 0.08,
+  swayReloadReduce: 0.8,
+  idleReloadReduce: 0.4,
 };

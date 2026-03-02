@@ -11,7 +11,7 @@ const DEFAULT_ITERATIONS = 3;
  * Resolve player-player overlaps in XZ plane. Mutates positions and velocities.
  * Excludes inactive players (e.g. dead). Iterates to handle 3+ player stacks.
  */
-export function resolvePlayerCollisions(players, isActive, playerRadius, iterations = DEFAULT_ITERATIONS) {
+export function resolvePlayerCollisions(players, isActive, playerRadius, playerHeight, iterations = DEFAULT_ITERATIONS) {
     const ids = [];
     players.forEach((_, id) => {
         if (isActive(id))
@@ -28,6 +28,14 @@ export function resolvePlayerCollisions(players, isActive, playerRadius, iterati
             for (let j = i + 1; j < ids.length; j++) {
                 const bId = ids[j];
                 const b = players.get(bId);
+                // Skip if players don't overlap vertically (allows jumping over others).
+                const aMinY = a.y;
+                const aMaxY = a.y + playerHeight;
+                const bMinY = b.y;
+                const bMaxY = b.y + playerHeight;
+                const overlapY = Math.min(aMaxY, bMaxY) - Math.max(aMinY, bMinY);
+                if (overlapY <= 0)
+                    continue;
                 const dx = b.x - a.x;
                 const dz = b.z - a.z;
                 const distXZ = Math.hypot(dx, dz) || 1e-8;

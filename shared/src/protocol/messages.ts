@@ -5,6 +5,17 @@
 
 import type { PlayerInput } from "../types/index.js";
 
+/** Identifier for weapon used in a kill event. */
+export type WeaponId = "rifle";
+
+/** Server->client payload when a player kills another player. */
+export interface KillEventPayload {
+  killerId: string;
+  victimId: string;
+  weaponId: WeaponId;
+  isHeadshot: boolean;
+}
+
 export type ClientMessage =
   | { type: "input"; payload: PlayerInput }
   | { type: "ping"; payload: { clientTime: number } };
@@ -15,4 +26,5 @@ export type ServerMessage =
   | {
       type: "hitReceived";
       payload: { dirX: number; dirY: number; dirZ: number; damage?: number };
-    };
+    }
+  | { type: "kill"; payload: KillEventPayload };

@@ -2,7 +2,7 @@
  * FFA Arena room: tick loop, state sync, placeholder movement.
  */
 import { Room } from "@colyseus/core";
-import { rayArenaIntersection, resolveAnimationClipId, TICK_RATE, PLAYER_RADIUS, PLAYER_EYE_HEIGHT, CROUCH_EYE_HEIGHT, HITSCAN_RANGE, HITSCAN_BODY_DAMAGE, HITSCAN_HEAD_MULTIPLIER, SHOT_INTERVAL_TICKS, RELOAD_TICKS, REGEN_DELAY_TICKS, SHIELD_REGEN_PER_SEC, HEALTH_REGEN_PER_SEC, MAX_SHIELD, MAX_HEALTH, RESPAWN_DELAY_SEC, HEAD_HITBOX_HEIGHT, HEAD_HITBOX_RADIUS, BODY_CAPSULE_TOP, BODY_CAPSULE_RADIUS, BODY_CAPSULE_TOP_EXTEND, raySphereIntersection, rayCapsuleIntersection, DEBUG_HEAD_ONLY, stepPlayerMovement, tickMovementTimers, resolvePlayerCollisions, } from "shared";
+import { rayArenaIntersection, resolveAnimationClipId, TICK_RATE, PLAYER_RADIUS, PLAYER_HEIGHT, PLAYER_EYE_HEIGHT, CROUCH_EYE_HEIGHT, HITSCAN_RANGE, HITSCAN_BODY_DAMAGE, HITSCAN_HEAD_MULTIPLIER, SHOT_INTERVAL_TICKS, RELOAD_TICKS, REGEN_DELAY_TICKS, SHIELD_REGEN_PER_SEC, HEALTH_REGEN_PER_SEC, MAX_SHIELD, MAX_HEALTH, RESPAWN_DELAY_SEC, HEAD_HITBOX_HEIGHT, HEAD_HITBOX_RADIUS, BODY_CAPSULE_TOP, BODY_CAPSULE_RADIUS, BODY_CAPSULE_TOP_EXTEND, raySphereIntersection, rayCapsuleIntersection, DEBUG_HEAD_ONLY, stepPlayerMovement, tickMovementTimers, resolvePlayerCollisions, } from "shared";
 import { ArenaState, PlayerStateSchema } from "shared";
 import { serverConfig } from "../config/index.js";
 import { createPlayerExtendedState, } from "../PlayerExtendedState.js";
@@ -275,7 +275,7 @@ export class ArenaFFARoom extends Room {
             }
         });
         // Resolve player-player collisions (push apart, bounce)
-        resolvePlayerCollisions(this.state.players, (id) => (this.state.players.get(id)?.health ?? 0) > 0, PLAYER_RADIUS);
+        resolvePlayerCollisions(this.state.players, (id) => (this.state.players.get(id)?.health ?? 0) > 0, PLAYER_RADIUS, PLAYER_HEIGHT);
     }
     /** Max distance (m) from server pos to trust client-reported position for ray origin. */
     static { this.CLIENT_POS_TRUST_RADIUS = 5; }
