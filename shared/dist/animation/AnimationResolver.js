@@ -41,10 +41,18 @@ export const DEFAULT_CLIP_NAMES = {
 const INPUT_THRESHOLD = 0.1;
 /**
  * Resolves input + movement state to animation clip ID (use with CLIP_NAMES for actual name).
- * Priority: Slide > Jump > Crouch > Sprint-strafe > Run > Walk/Strafe > Idle.
+ * Priority: Dash > Slide > Jump > Crouch > Sprint-strafe > Run > Walk/Strafe > Idle.
  */
 export function resolveAnimationClipId(input) {
-    const { moveX, moveZ, sprint, crouching, movementState } = input;
+    const { moveX, moveZ, sprint, crouching, movementState, isDashing, dashDirX = 0, dashDirZ = 0 } = input;
+    if (isDashing) {
+        const ax = Math.abs(dashDirX);
+        const az = Math.abs(dashDirZ);
+        if (az >= ax) {
+            return dashDirZ < 0 ? ANIMATION_CLIP_IDS.run : ANIMATION_CLIP_IDS.walkBackwards;
+        }
+        return dashDirX > 0 ? ANIMATION_CLIP_IDS.strafeRightFast : ANIMATION_CLIP_IDS.strafeLeftFast;
+    }
     if (movementState === "sliding") {
         return ANIMATION_CLIP_IDS.slide;
     }

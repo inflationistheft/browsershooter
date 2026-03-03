@@ -74,6 +74,12 @@ export interface PovMovementTuning {
   reloadOvershoot?: number;
   swayReloadReduce?: number;
   idleReloadReduce?: number;
+  /** Dash: Z offset (viewmodel back = lunge feel). */
+  dashOffsetZ?: number;
+  /** Dash: pitch down (rad). */
+  dashTiltPitch?: number;
+  /** Dash: blend in/out tau (s). */
+  dashBlendTau?: number;
 }
 
 export interface ThirdPersonWeaponOffset {

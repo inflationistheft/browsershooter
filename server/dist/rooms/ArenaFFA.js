@@ -2,7 +2,7 @@
  * FFA Arena room: tick loop, state sync, placeholder movement.
  */
 import { Room } from "@colyseus/core";
-import { rayArenaIntersection, resolveAnimationClipId, TICK_RATE, PLAYER_RADIUS, PLAYER_HEIGHT, PLAYER_EYE_HEIGHT, CROUCH_EYE_HEIGHT, HITSCAN_RANGE, HITSCAN_BODY_DAMAGE, HITSCAN_HEAD_MULTIPLIER, SHOT_INTERVAL_TICKS, RELOAD_TICKS, REGEN_DELAY_TICKS, SHIELD_REGEN_PER_SEC, HEALTH_REGEN_PER_SEC, MAX_SHIELD, MAX_HEALTH, RESPAWN_DELAY_SEC, HEAD_HITBOX_HEIGHT, HEAD_HITBOX_RADIUS, BODY_CAPSULE_TOP, BODY_CAPSULE_RADIUS, BODY_CAPSULE_TOP_EXTEND, raySphereIntersection, rayCapsuleIntersection, DEBUG_HEAD_ONLY, stepPlayerMovement, tickMovementTimers, resolvePlayerCollisions, } from "shared";
+import { rayArenaIntersection, resolveAnimationClipId, TICK_RATE, PLAYER_RADIUS, PLAYER_HEIGHT, PLAYER_EYE_HEIGHT, CROUCH_EYE_HEIGHT, HITSCAN_RANGE, HITSCAN_BODY_DAMAGE, HITSCAN_HEAD_MULTIPLIER, SHOT_INTERVAL_TICKS, RELOAD_TICKS, REGEN_DELAY_TICKS, SHIELD_REGEN_PER_SEC, HEALTH_REGEN_PER_SEC, MAX_SHIELD, MAX_HEALTH, RESPAWN_DELAY_SEC, HEAD_HITBOX_HEIGHT, HEAD_HITBOX_RADIUS, BODY_CAPSULE_TOP, BODY_CAPSULE_RADIUS, BODY_CAPSULE_TOP_EXTEND, BULLET_RADIUS, raySphereIntersection, rayCapsuleIntersection, DEBUG_HEAD_ONLY, stepPlayerMovement, tickMovementTimers, resolvePlayerCollisions, } from "shared";
 import { ArenaState, PlayerStateSchema } from "shared";
 import { serverConfig } from "../config/index.js";
 import { createPlayerExtendedState, } from "../PlayerExtendedState.js";
@@ -99,6 +99,15 @@ export class ArenaFFARoom extends Room {
                     ext.slideJumpCooldownTimer = undefined;
                     ext.slideEnterCooldownTimer = undefined;
                     ext.slideOnLand = false;
+                    ext.horSpeedWhenJumped = 0;
+                    ext.lastApproachVx = 0;
+                    ext.lastApproachVz = 0;
+                    ext.lastJumpHeld = false;
+                    ext.lastHasSlideIntent = false;
+                    ext.dashCooldownTimer = 0;
+                    ext.dashActiveTimer = 0;
+                    ext.lastDashDirX = 0;
+                    ext.lastDashDirZ = 0;
                 }
                 return;
             }
@@ -132,6 +141,54 @@ export class ArenaFFARoom extends Room {
                 },
                 set horSpeedWhenJumped(v) {
                     ext.horSpeedWhenJumped = v;
+                },
+                get lastApproachVx() {
+                    return ext.lastApproachVx ?? 0;
+                },
+                set lastApproachVx(v) {
+                    ext.lastApproachVx = v;
+                },
+                get lastApproachVz() {
+                    return ext.lastApproachVz ?? 0;
+                },
+                set lastApproachVz(v) {
+                    ext.lastApproachVz = v;
+                },
+                get lastJumpHeld() {
+                    return ext.lastJumpHeld ?? false;
+                },
+                set lastJumpHeld(v) {
+                    ext.lastJumpHeld = v;
+                },
+                get lastHasSlideIntent() {
+                    return ext.lastHasSlideIntent ?? false;
+                },
+                set lastHasSlideIntent(v) {
+                    ext.lastHasSlideIntent = v;
+                },
+                get dashCooldownTimer() {
+                    return ext.dashCooldownTimer ?? 0;
+                },
+                set dashCooldownTimer(v) {
+                    ext.dashCooldownTimer = v;
+                },
+                get dashActiveTimer() {
+                    return ext.dashActiveTimer ?? 0;
+                },
+                set dashActiveTimer(v) {
+                    ext.dashActiveTimer = v;
+                },
+                get lastDashDirX() {
+                    return ext.lastDashDirX ?? 0;
+                },
+                set lastDashDirX(v) {
+                    ext.lastDashDirX = v;
+                },
+                get lastDashDirZ() {
+                    return ext.lastDashDirZ ?? 0;
+                },
+                set lastDashDirZ(v) {
+                    ext.lastDashDirZ = v;
                 },
             };
             tickMovementTimers(movementExt, dtSec);
@@ -171,8 +228,10 @@ export class ArenaFFARoom extends Room {
                     moveX: lastInput.moveX ?? 0,
                     moveZ: lastInput.moveZ ?? 0,
                     jump: lastInput.jump ?? false,
+                    jumpHeld: lastInput.jump ?? false,
                     hasSlideIntent,
                     crouch,
+                    dash: lastInput.dash ?? false,
                     yaw: player.yaw,
                     pitch: player.pitch,
                 };
@@ -194,16 +253,25 @@ export class ArenaFFARoom extends Room {
                 player.vy = movementState.vy;
                 player.vz = movementState.vz;
                 player.movementState = movementState.movementState;
+                const dashActive = (ext.dashActiveTimer ?? 0) > 0;
                 const animId = resolveAnimationClipId({
                     moveX: lastInput.moveX ?? 0,
                     moveZ: lastInput.moveZ ?? 0,
                     sprint: lastInput.sprint ?? false,
                     crouching: player.movementState === "sliding" || crouch,
                     movementState: player.movementState,
+                    isDashing: dashActive,
+                    dashDirX: ext.lastDashDirX ?? 0,
+                    dashDirZ: ext.lastDashDirZ ?? 0,
                 });
                 player.animationState = animId;
                 const isStrafeFast = animId === "strafeLeftFast" || animId === "strafeRightFast";
-                player.animationTimeScale = isStrafeFast && !(lastInput.sprint ?? false) ? 0.7 : 1;
+                if (dashActive) {
+                    player.animationTimeScale = 0;
+                }
+                else {
+                    player.animationTimeScale = isStrafeFast && !(lastInput.sprint ?? false) ? 0.7 : 1;
+                }
             }
             else {
                 player.animationState = "idle";
@@ -228,6 +296,7 @@ export class ArenaFFARoom extends Room {
                 if (hitResult) {
                     const target = this.state.players.get(hitResult.targetId);
                     if (target) {
+                        const wasAlive = target.health > 0;
                         const headDamage = target.shield > 0
                             ? HITSCAN_BODY_DAMAGE
                             : Math.round(HITSCAN_BODY_DAMAGE * HITSCAN_HEAD_MULTIPLIER);
@@ -248,6 +317,9 @@ export class ArenaFFARoom extends Room {
                                 targetId: hitResult.targetId,
                                 damage: actualDamage,
                                 hitboxType: hitResult.hitboxType,
+                                hitX: hitResult.hitX,
+                                hitY: hitResult.hitY,
+                                hitZ: hitResult.hitZ,
                             });
                         }
                         const targetClient = Array.from(this.clients).find((c) => c.sessionId === hitResult.targetId);
@@ -261,7 +333,19 @@ export class ArenaFFARoom extends Room {
                                 dirY: dirY / len,
                                 dirZ: dirZ / len,
                                 damage: actualDamage,
+                                hitX: hitResult.hitX,
+                                hitY: hitResult.hitY,
+                                hitZ: hitResult.hitZ,
                             });
+                        }
+                        if (wasAlive && target.health <= 0) {
+                            const payload = {
+                                killerId: shooterId,
+                                victimId: hitResult.targetId,
+                                weaponId: "rifle",
+                                isHeadshot: hitResult.hitboxType === "head",
+                            };
+                            this.broadcastKillEvent(payload);
                         }
                         if (process.env.DEBUG_HITSCAN) {
                             console.log(`[ArenaFFA] Hit: ${shooterId} -> ${hitResult.targetId} (${hitResult.hitboxType})`);
@@ -433,7 +517,7 @@ export class ArenaFFARoom extends Room {
             const headCx = useBoneHitboxes && targetExt ? targetExt.headX : p.x;
             const headCy = useBoneHitboxes && targetExt ? targetExt.headY : p.y + HEAD_HITBOX_HEIGHT;
             const headCz = useBoneHitboxes && targetExt ? targetExt.headZ : p.z;
-            const tHead = raySphereIntersection(ox, oy, oz, dx, dy, dz, headCx, headCy, headCz, HEAD_HITBOX_RADIUS);
+            const tHead = raySphereIntersection(ox, oy, oz, dx, dy, dz, headCx, headCy, headCz, HEAD_HITBOX_RADIUS + BULLET_RADIUS);
             if (tHead !== null && tHead > 0 && tHead <= HITSCAN_RANGE && tHead < bestT) {
                 const los = rayArenaIntersection(ox, oy, oz, dx, dy, dz, tHead);
                 if (!los.hit || (los.t !== undefined && los.t > tHead)) {
@@ -450,10 +534,10 @@ export class ArenaFFARoom extends Room {
                 const bcx = (targetExt.bodyCenterX + targetExt.pelvisX) / 2;
                 const bcz = (targetExt.bodyCenterZ + targetExt.pelvisZ) / 2;
                 const bodyTopY = targetExt.spineTopY + BODY_CAPSULE_TOP_EXTEND;
-                tBody = rayCapsuleIntersection(ox, oy, oz, dx, dy, dz, bcx, 0, bcz, targetExt.feetY, bodyTopY, BODY_CAPSULE_RADIUS);
+                tBody = rayCapsuleIntersection(ox, oy, oz, dx, dy, dz, bcx, 0, bcz, targetExt.feetY, bodyTopY, BODY_CAPSULE_RADIUS + BULLET_RADIUS);
             }
             else {
-                tBody = rayCapsuleIntersection(ox, oy, oz, dx, dy, dz, p.x, p.y, p.z, 0, BODY_CAPSULE_TOP, BODY_CAPSULE_RADIUS);
+                tBody = rayCapsuleIntersection(ox, oy, oz, dx, dy, dz, p.x, p.y, p.z, 0, BODY_CAPSULE_TOP, BODY_CAPSULE_RADIUS + BULLET_RADIUS);
             }
             if (tBody !== null && tBody > 0 && tBody <= HITSCAN_RANGE && tBody < bestT) {
                 const los = rayArenaIntersection(ox, oy, oz, dx, dy, dz, tBody);
@@ -464,6 +548,49 @@ export class ArenaFFARoom extends Room {
                 }
             }
         });
-        return bestId ? { targetId: bestId, hitboxType: bestType } : null;
+        // Determine where the visible shot should end for tracers / sparks.
+        let shotHitX;
+        let shotHitY;
+        let shotHitZ;
+        if (bestId) {
+            shotHitX = ox + dx * bestT;
+            shotHitY = oy + dy * bestT;
+            shotHitZ = oz + dz * bestT;
+        }
+        else {
+            const arenaHit = rayArenaIntersection(ox, oy, oz, dx, dy, dz, HITSCAN_RANGE);
+            if (arenaHit.hit && arenaHit.t !== undefined) {
+                shotHitX = ox + dx * arenaHit.t;
+                shotHitY = oy + dy * arenaHit.t;
+                shotHitZ = oz + dz * arenaHit.t;
+            }
+        }
+        // Broadcast shot ray for client-side tracers (3P) plus optional hit point
+        // so that the visible tracer and spark stop exactly at the impact.
+        this.broadcast("shot", {
+            shooterId,
+            ox,
+            oy,
+            oz,
+            dx,
+            dy,
+            dz,
+            hitX: shotHitX,
+            hitY: shotHitY,
+            hitZ: shotHitZ,
+        });
+        if (!bestId || shotHitX === undefined || shotHitY === undefined || shotHitZ === undefined) {
+            return null;
+        }
+        return {
+            targetId: bestId,
+            hitboxType: bestType,
+            hitX: shotHitX,
+            hitY: shotHitY,
+            hitZ: shotHitZ,
+        };
+    }
+    broadcastKillEvent(payload) {
+        this.broadcast("kill", payload);
     }
 }

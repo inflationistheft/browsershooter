@@ -151,6 +151,10 @@ export class ArenaFFARoom extends Room<ArenaState> {
           ext.lastApproachVz = 0;
           ext.lastJumpHeld = false;
           ext.lastHasSlideIntent = false;
+          ext.dashCooldownTimer = 0;
+          ext.dashActiveTimer = 0;
+          ext.lastDashDirX = 0;
+          ext.lastDashDirZ = 0;
         }
         return;
       }
@@ -210,6 +214,30 @@ export class ArenaFFARoom extends Room<ArenaState> {
         set lastHasSlideIntent(v: boolean) {
           ext.lastHasSlideIntent = v;
         },
+        get dashCooldownTimer() {
+          return ext.dashCooldownTimer ?? 0;
+        },
+        set dashCooldownTimer(v: number) {
+          ext.dashCooldownTimer = v;
+        },
+        get dashActiveTimer() {
+          return ext.dashActiveTimer ?? 0;
+        },
+        set dashActiveTimer(v: number) {
+          ext.dashActiveTimer = v;
+        },
+        get lastDashDirX() {
+          return ext.lastDashDirX ?? 0;
+        },
+        set lastDashDirX(v: number) {
+          ext.lastDashDirX = v;
+        },
+        get lastDashDirZ() {
+          return ext.lastDashDirZ ?? 0;
+        },
+        set lastDashDirZ(v: number) {
+          ext.lastDashDirZ = v;
+        },
       };
       tickMovementTimers(movementExt, dtSec);
 
@@ -263,6 +291,7 @@ export class ArenaFFARoom extends Room<ArenaState> {
           jumpHeld: lastInput.jump ?? false,
           hasSlideIntent,
           crouch,
+          dash: lastInput.dash ?? false,
           yaw: player.yaw,
           pitch: player.pitch,
         };
@@ -285,16 +314,24 @@ export class ArenaFFARoom extends Room<ArenaState> {
         player.vz = movementState.vz;
         player.movementState = movementState.movementState;
 
+        const dashActive = (ext.dashActiveTimer ?? 0) > 0;
         const animId = resolveAnimationClipId({
           moveX: lastInput.moveX ?? 0,
           moveZ: lastInput.moveZ ?? 0,
           sprint: lastInput.sprint ?? false,
           crouching: player.movementState === "sliding" || crouch,
           movementState: player.movementState as "grounded" | "sliding" | "airborne",
+          isDashing: dashActive,
+          dashDirX: ext.lastDashDirX ?? 0,
+          dashDirZ: ext.lastDashDirZ ?? 0,
         });
         player.animationState = animId;
         const isStrafeFast = animId === "strafeLeftFast" || animId === "strafeRightFast";
-        player.animationTimeScale = isStrafeFast && !(lastInput.sprint ?? false) ? 0.7 : 1;
+        if (dashActive) {
+          player.animationTimeScale = 0;
+        } else {
+          player.animationTimeScale = isStrafeFast && !(lastInput.sprint ?? false) ? 0.7 : 1;
+        }
       } else {
         player.animationState = "idle";
       }

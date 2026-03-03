@@ -15,6 +15,11 @@ function createDefaultExt() {
         lastApproachVx: 0,
         lastApproachVz: 0,
         lastJumpHeld: false,
+        lastHasSlideIntent: false,
+        dashCooldownTimer: 0,
+        dashActiveTimer: 0,
+        lastDashDirX: 0,
+        lastDashDirZ: 0,
     };
 }
 /** Advance movement ext timers (call before step). */
@@ -23,6 +28,8 @@ export function tickMovementTimers(ext, dt) {
         ext.slideJumpCooldownTimer -= dt;
     if (ext.slideEnterCooldownTimer > 0)
         ext.slideEnterCooldownTimer -= dt;
+    if (ext.dashCooldownTimer > 0)
+        ext.dashCooldownTimer -= dt;
 }
 /**
  * Single tick of movement. Mutates state in place.
@@ -33,6 +40,53 @@ export function stepPlayerMovement(state, input, dt, playerRadius) {
     const ext = state.ext;
     const jumpPressedThisFrame = input.jumpHeld && !ext.lastJumpHeld;
     ext.lastJumpHeld = input.jumpHeld;
+    const hadSlideIntentLastFrame = ext.lastHasSlideIntent;
+    const slidePressedThisFrame = input.hasSlideIntent && !hadSlideIntentLastFrame;
+    ext.lastHasSlideIntent = input.hasSlideIntent;
+    // Start dash: input.dash, cooldown ready, not already in dash phase; direction from move or look
+    if (input.dash && ext.dashCooldownTimer <= 0 && ext.dashActiveTimer <= 0) {
+        const cos = Math.cos(input.yaw);
+        const sin = Math.sin(input.yaw);
+        let dx = input.moveX * cos - input.moveZ * sin;
+        let dz = -(input.moveX * sin + input.moveZ * cos);
+        let len = Math.hypot(dx, dz);
+        if (len < 0.01) {
+            dx = -sin;
+            dz = -cos;
+            len = Math.hypot(dx, dz);
+        }
+        if (len > 0.01) {
+            dx /= len;
+            dz /= len;
+            state.vx = dx * t.dashSpeed;
+            state.vz = dz * t.dashSpeed;
+            ext.dashActiveTimer = t.dashDuration;
+            ext.dashCooldownTimer = t.dashCooldownSec;
+            ext.lastDashDirX = dx;
+            ext.lastDashDirZ = dz;
+        }
+    }
+    // Dash phase: constant horizontal speed, gravity, no friction
+    if (ext.dashActiveTimer > 0) {
+        ext.dashActiveTimer -= dt;
+        state.vy -= t.gravity * dt;
+        state.vy = Math.max(state.vy, -t.maxFallSpeed);
+        state.x += state.vx * dt;
+        state.y += state.vy * dt;
+        state.z += state.vz * dt;
+        if (state.y <= GROUND_Y) {
+            state.y = GROUND_Y;
+            state.vy = 0;
+        }
+        const wall = resolveArenaWalls(state.x, state.z, playerRadius);
+        state.x = wall.x;
+        state.z = wall.z;
+        const velSlide = { x: state.vx, z: state.vz };
+        applyWallVelocitySlide(velSlide, wall);
+        state.vx = velSlide.x;
+        state.vz = velSlide.z;
+        return;
+    }
     if (state.movementState === "sliding") {
         ext.slideTime += dt;
         const hor = Math.hypot(state.vx, state.vz);
@@ -89,8 +143,10 @@ export function stepPlayerMovement(state, input, dt, playerRadius) {
         return;
     }
     if (state.movementState === "airborne") {
-        if (input.hasSlideIntent)
-            ext.slideOnLand = true; // Shift held: slide on landing if fast enough
+        if (slidePressedThisFrame)
+            ext.slideOnLand = true; // only on fresh Shift tap in air, not from holding
+        if (hadSlideIntentLastFrame && !input.hasSlideIntent)
+            ext.slideOnLand = false; // released Shift in air -> no slide on land
         const hor = Math.hypot(state.vx, state.vz);
         const horCap = ext.horSpeedWhenJumped;
         if (hor > horCap && horCap > 0) {
@@ -183,6 +239,7 @@ export function stepPlayerMovement(state, input, dt, playerRadius) {
                 state.vy = t.jumpForce * t.wallBounceJumpMultiplier;
                 ext.horSpeedWhenJumped = horAfter;
                 ext.slideJumpCooldownTimer = t.slideJumpCooldown;
+                ext.slideOnLand = false; // no auto-slide on land after wall-bounce; must press Shift again in air
                 const velAirBounce = { x: state.vx, z: state.vz };
                 applyWallVelocitySlide(velAirBounce, wall);
                 state.vx = velAirBounce.x;

@@ -13,6 +13,8 @@ export interface MovementStepInput {
     hasSlideIntent: boolean;
     /** True when C held. Crouch walk only (no slide). */
     crouch: boolean;
+    /** True when B pressed: request horizontal dash in move or look direction. */
+    dash: boolean;
     yaw: number;
     pitch: number;
 }
@@ -27,6 +29,16 @@ export interface MovementExtState {
     lastApproachVz: number;
     /** Previous frame jump key state; used to detect fresh Space tap for wall-bounce. */
     lastJumpHeld: boolean;
+    /** Previous frame slide intent; used so slide-on-land only triggers on fresh Shift tap in air. */
+    lastHasSlideIntent: boolean;
+    /** Cooldown (s) remaining before next dash. */
+    dashCooldownTimer: number;
+    /** Time (s) remaining in current dash impulse phase. */
+    dashActiveTimer: number;
+    /** Last dash direction X (world). For animation. */
+    lastDashDirX: number;
+    /** Last dash direction Z (world). For animation. */
+    lastDashDirZ: number;
 }
 export interface MovementStepState {
     x: number;

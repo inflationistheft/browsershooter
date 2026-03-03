@@ -10,6 +10,12 @@ export interface AnimationResolverInput {
     /** True when crouching (C held) or when movementState is sliding (slide continues without holding). */
     crouching: boolean;
     movementState: AnimationResolverMovementState;
+    /** True during dash impulse phase. Picks direction clip and should be played as static pose. */
+    isDashing?: boolean;
+    /** World-space dash direction X (from ext.lastDashDirX). */
+    dashDirX?: number;
+    /** World-space dash direction Z (from ext.lastDashDirZ). */
+    dashDirZ?: number;
 }
 /** Clip name keys – map to actual GLB clip names via CLIP_NAMES. */
 export declare const ANIMATION_CLIP_IDS: {
@@ -35,7 +41,7 @@ export type AnimationClipId = (typeof ANIMATION_CLIP_IDS)[keyof typeof ANIMATION
 export declare const DEFAULT_CLIP_NAMES: Record<AnimationClipId, string>;
 /**
  * Resolves input + movement state to animation clip ID (use with CLIP_NAMES for actual name).
- * Priority: Slide > Jump > Crouch > Sprint-strafe > Run > Walk/Strafe > Idle.
+ * Priority: Dash > Slide > Jump > Crouch > Sprint-strafe > Run > Walk/Strafe > Idle.
  */
 export declare function resolveAnimationClipId(input: AnimationResolverInput): AnimationClipId;
 /** Resolves to the actual clip name string for Three.js AnimationClip.findByName. */

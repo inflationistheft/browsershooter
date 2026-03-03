@@ -45,6 +45,12 @@ export declare const movementTuning: {
     readonly wallBounceBoostFactor: 1.08;
     readonly wallBounceBoostMin: 8;
     readonly maxFallSpeed: 55;
+    /** Horizontal dash: speed during dash phase (faster than slide). */
+    readonly dashSpeed: 18;
+    /** Duration (s) of dash impulse phase. */
+    readonly dashDuration: 0.2;
+    /** Cooldown (s) before next dash. */
+    readonly dashCooldownSec: 10;
 };
 export type MovementTuning = typeof movementTuning;
 //# sourceMappingURL=movement.d.ts.map

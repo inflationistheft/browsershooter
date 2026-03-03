@@ -19,6 +19,8 @@ export interface ViewmodelMovementInput {
   shotThisFrame: boolean;
   /** 0..1 reload timeline (0 = none, 1 = end of reload). */
   reloadProgress: number;
+  /** True during dash impulse. Drives dash pose blend. */
+  isDashing?: boolean;
 }
 
 export interface ViewmodelMovementState {
@@ -46,6 +48,8 @@ export interface ViewmodelMovementState {
   strafeLeanRoll: number;
   /** Forward lean: Z offset when W/S – forward = +Z (back), backward = -Z. */
   forwardLeanZ: number;
+  /** Dash: 0..1 blend for dash pose (offset + tilt). */
+  dashBlend: number;
   /** Smoothed mouse deltas for sway – avoids tick-rate stutter. */
   smoothedYawDelta: number;
   smoothedPitchDelta: number;
@@ -98,6 +102,7 @@ export function createViewmodelMovementState(): ViewmodelMovementState {
     strafeLeanX: 0,
     strafeLeanRoll: 0,
     forwardLeanZ: 0,
+    dashBlend: 0,
     smoothedYawDelta: 0,
     smoothedPitchDelta: 0,
     idlePhase: 0,
@@ -277,6 +282,14 @@ export function updateViewmodelMovement(
     fwdDir * fwdMagnitude * (cfg.forwardLeanZ ?? 0);
   state.forwardLeanZ = lerp(state.forwardLeanZ, targetForwardLeanZ, dt / leanTau);
 
+  // --- Dash: short lunge/tilt (first-frame strafe feel) ---
+  const isDashing = input.isDashing ?? false;
+  const targetDashBlend = isDashing ? 1 : 0;
+  const dashTau = cfg.dashBlendTau ?? 0.04;
+  state.dashBlend = lerp(state.dashBlend, targetDashBlend, dt / dashTau);
+  const dashZ = state.dashBlend * (cfg.dashOffsetZ ?? 0.06);
+  const dashPitch = state.dashBlend * (cfg.dashTiltPitch ?? -0.04);
+
   // --- Bob weights: forward = more Y, strafe = more X + roll, diagonal = mix ---
   const wY = 0.4 + 0.6 * forwardWeight;
   const wX = 0.4 + 0.6 * strafeWeight;
@@ -411,10 +424,10 @@ export function updateViewmodelMovement(
   state._targetPos.set(
     bobX + state.strafeLeanX + idlePosX,
     bobY + slideY + reloadY + idlePosY + jumpPosY,
-    state.recoilPullback + reloadPull + slideZ + reloadZ + state.forwardLeanZ + jumpPosZ
+    state.recoilPullback + reloadPull + slideZ + reloadZ + state.forwardLeanZ + jumpPosZ + dashZ
   );
   state._targetRot.set(
-    state.swayPitch + state.recoilPitch + bobPitch + idlePitch + slidePitch + reloadPitch,
+    state.swayPitch + state.recoilPitch + bobPitch + idlePitch + slidePitch + reloadPitch + dashPitch,
     state.swayYaw + reloadYawY,
     slideRotZ + reloadRollZ + state.recoilRoll + bobRoll + state.strafeLeanRoll + idleRoll + landingRoll,
     "YXZ"

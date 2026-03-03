@@ -37,6 +37,7 @@ export function inputStateToPlayerInput(
     pitch: state.pitch,
     shoot: state.shoot,
     reload: state.reload,
+    dash: state.dash,
   };
   if (clientPos) {
     out.clientX = clientPos.x;

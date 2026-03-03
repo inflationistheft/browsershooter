@@ -212,10 +212,11 @@ export class PlayerAnimationSystem {
 
     const isStrafeFast =
       effectiveClipId === "strafeLeftFast" || effectiveClipId === "strafeRightFast";
-    if (isStrafeFast) {
-      if (context?.timeScale !== undefined) {
-        nextAction.timeScale = context.timeScale;
-      } else if (context?.sprint === false) {
+    if (context?.timeScale !== undefined) {
+      nextAction.timeScale = context.timeScale;
+      if (context.timeScale === 0) nextAction.time = 0;
+    } else if (isStrafeFast) {
+      if (context?.sprint === false) {
         nextAction.timeScale = PlayerAnimationSystem.STRAFE_SLOW_SCALE;
       } else {
         nextAction.timeScale = 1;

@@ -21,6 +21,10 @@ export interface PlayerExtendedState {
   lastApproachVz?: number;
   lastJumpHeld?: boolean;
   lastHasSlideIntent?: boolean;
+  dashCooldownTimer?: number;
+  dashActiveTimer?: number;
+  lastDashDirX?: number;
+  lastDashDirZ?: number;
   /** Cached hitbox world positions from client input. */
   headX?: number;
   headY?: number;

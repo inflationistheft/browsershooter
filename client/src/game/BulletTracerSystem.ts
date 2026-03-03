@@ -22,7 +22,6 @@ interface TracerInstance {
 const DEFAULT_LINE_RADIUS = 0.01;
 
 const Y_UP = new THREE.Vector3(0, 1, 0);
-const _quat = new THREE.Quaternion();
 
 export class BulletTracerSystem {
   private tracers: TracerInstance[] = [];

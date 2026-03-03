@@ -19,7 +19,9 @@ export interface InputState {
   pitch: number;
   shoot: boolean;
   reload: boolean;
-  /** True on keydown of KeyB (debug toggle). Consumed by tick(). */
+  /** Q: horizontal dash in move or look direction. */
+  dash: boolean;
+  /** True on keydown of F3 (debug toggle). Consumed by tick(). */
   debugModeJustPressed: boolean;
 }
 
@@ -36,6 +38,7 @@ export const defaultInputState: InputState = {
   pitch: 0,
   shoot: false,
   reload: false,
+  dash: false,
   debugModeJustPressed: false,
 };
 
@@ -81,6 +84,7 @@ export class InputSampler {
     this.state.slide = slideNow;
     this.state.slideIntentTicks = this._slideIntentTicks;
     this.state.crouch = this.keysDown.has("KeyC");
+    this.state.dash = this.keysDown.has("KeyQ");
     return this.state;
   }
 
@@ -175,7 +179,7 @@ export class InputSampler {
       this.state.jump = down;
     }
     if (code === "KeyR") this.state.reload = down;
-    if (code === "KeyB" && down) {
+    if (code === "F3" && down) {
       e.preventDefault();
       this.state.debugModeJustPressed = true;
     }

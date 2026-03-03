@@ -45,4 +45,10 @@ export const movementTuning = {
     wallBounceBoostFactor: 1.08,
     wallBounceBoostMin: 8,
     maxFallSpeed: 55,
+    /** Horizontal dash: speed during dash phase (faster than slide). */
+    dashSpeed: 18,
+    /** Duration (s) of dash impulse phase. */
+    dashDuration: 0.2,
+    /** Cooldown (s) before next dash. */
+    dashCooldownSec: 10,
 };

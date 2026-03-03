@@ -12,6 +12,12 @@ export interface AnimationResolverInput {
   /** True when crouching (C held) or when movementState is sliding (slide continues without holding). */
   crouching: boolean;
   movementState: AnimationResolverMovementState;
+  /** True during dash impulse phase. Picks direction clip and should be played as static pose. */
+  isDashing?: boolean;
+  /** World-space dash direction X (from ext.lastDashDirX). */
+  dashDirX?: number;
+  /** World-space dash direction Z (from ext.lastDashDirZ). */
+  dashDirZ?: number;
 }
 
 /** Clip name keys – map to actual GLB clip names via CLIP_NAMES. */
@@ -58,10 +64,19 @@ const INPUT_THRESHOLD = 0.1;
 
 /**
  * Resolves input + movement state to animation clip ID (use with CLIP_NAMES for actual name).
- * Priority: Slide > Jump > Crouch > Sprint-strafe > Run > Walk/Strafe > Idle.
+ * Priority: Dash > Slide > Jump > Crouch > Sprint-strafe > Run > Walk/Strafe > Idle.
  */
 export function resolveAnimationClipId(input: AnimationResolverInput): AnimationClipId {
-  const { moveX, moveZ, sprint, crouching, movementState } = input;
+  const { moveX, moveZ, sprint, crouching, movementState, isDashing, dashDirX = 0, dashDirZ = 0 } = input;
+
+  if (isDashing) {
+    const ax = Math.abs(dashDirX);
+    const az = Math.abs(dashDirZ);
+    if (az >= ax) {
+      return dashDirZ < 0 ? ANIMATION_CLIP_IDS.run : ANIMATION_CLIP_IDS.walkBackwards;
+    }
+    return dashDirX > 0 ? ANIMATION_CLIP_IDS.strafeRightFast : ANIMATION_CLIP_IDS.strafeLeftFast;
+  }
 
   if (movementState === "sliding") {
     return ANIMATION_CLIP_IDS.slide;

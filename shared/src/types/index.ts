@@ -75,8 +75,10 @@ export interface PlayerInput {
   shootClientX?: number;
   shootClientY?: number;
   shootClientZ?: number;
-  /** When true, server grants infinite ammo (client-side debug toggle via B). */
+  /** When true, server grants infinite ammo (client-side debug toggle). */
   debugMode?: boolean;
+  /** B key: request horizontal dash in move or look direction. */
+  dash?: boolean;
 }
 
 export interface MapPrefabPlacement {

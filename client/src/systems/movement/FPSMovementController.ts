@@ -41,6 +41,10 @@ export class FPSMovementController {
     lastApproachVz: 0,
     lastJumpHeld: false,
     lastHasSlideIntent: false,
+    dashCooldownTimer: 0,
+    dashActiveTimer: 0,
+    lastDashDirX: 0,
+    lastDashDirZ: 0,
   };
 
   update(dt: number, input: Readonly<InputState>, _physics: { raycast?: () => boolean }): void {
@@ -62,6 +66,7 @@ export class FPSMovementController {
       jumpHeld: input.jump,
       hasSlideIntent,
       crouch: input.crouch,
+      dash: input.dash,
       yaw: input.yaw,
       pitch: input.pitch,
     };
@@ -109,5 +114,20 @@ export class FPSMovementController {
       state: this.state,
       crouching: this.crouching,
     };
+  }
+
+  /** Dash cooldown remaining (s). For HUD. */
+  getDashCooldownRemaining(): number {
+    return Math.max(0, this.ext.dashCooldownTimer);
+  }
+
+  /** Total dash cooldown (s). For HUD. */
+  getDashCooldownTotal(): number {
+    return movementTuning.dashCooldownSec;
+  }
+
+  /** True while dash impulse is active. For VFX/anim. */
+  isDashing(): boolean {
+    return this.ext.dashActiveTimer > 0;
   }
 }

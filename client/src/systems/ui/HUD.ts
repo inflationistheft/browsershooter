@@ -66,11 +66,92 @@ export function createHUD(container: HTMLElement): void {
   leftInfo.style.cssText = `font-size: 15px; color: rgba(255,255,255,0.5); margin-top: 4px;`;
   leftInfo.textContent = "";
 
+  // Dash cooldown: circle that fills over 10s; full color when ready, grayscale when on cooldown
+  const dashWrap = document.createElement("div");
+  dashWrap.id = "hud-dash-indicator";
+  dashWrap.style.cssText = `
+    display: flex; align-items: center; gap: 8px; margin-bottom: 14px;
+  `;
+  const dashCircle = document.createElement("div");
+  dashCircle.id = "hud-dash-circle";
+  dashCircle.style.cssText = `
+    width: 47px; height: 47px; border-radius: 50%;
+    background: conic-gradient(var(--dash-fill-color, #4dd0e1) calc(var(--dash-fill, 0) * 360deg), rgba(255,255,255,0.15) 0);
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  `;
+  const dashIcon = document.createElement("div");
+  dashIcon.id = "hud-dash-icon";
+  dashIcon.setAttribute("aria-label", "Dash");
+  dashIcon.style.cssText = `
+    width: 42px; height: 42px; border-radius: 50%;
+    background-color: rgba(0,0,0,0.55);
+    background-image: url("/ui/ability_dash.png");
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 100% 100%;
+    border: 3px solid currentColor;
+    color: #4dd0e1;
+    transition: filter 0.2s ease, color 0.2s ease;
+  `;
+  dashCircle.appendChild(dashIcon);
+  dashWrap.appendChild(dashCircle);
+  // Ability indicator above health display
+  panel.appendChild(dashWrap);
   panel.appendChild(numberEl);
   panel.appendChild(barWrap);
   panel.appendChild(nameEl);
   panel.appendChild(leftInfo);
   container.appendChild(panel);
+
+  // Speed lines (left/right) during dash
+  const speedLinesLeft = document.createElement("div");
+  speedLinesLeft.id = "hud-dash-lines-left";
+  speedLinesLeft.style.cssText = `
+    position: fixed; left: 0; top: 0; bottom: 0; width: 4%;
+    max-width: 48px; pointer-events: none;
+    background: linear-gradient(90deg, rgba(77,208,225,0.25) 0%, transparent 100%);
+    opacity: 0; transition: opacity 0.08s ease-out;
+    z-index: 1;
+  `;
+  const speedLinesRight = document.createElement("div");
+  speedLinesRight.id = "hud-dash-lines-right";
+  speedLinesRight.style.cssText = `
+    position: fixed; right: 0; top: 0; bottom: 0; width: 4%;
+    max-width: 48px; pointer-events: none;
+    background: linear-gradient(270deg, rgba(77,208,225,0.25) 0%, transparent 100%);
+    opacity: 0; transition: opacity 0.08s ease-out;
+    z-index: 1;
+  `;
+  container.appendChild(speedLinesLeft);
+  container.appendChild(speedLinesRight);
+
+  // Full-screen dash streaks: radial "warp speed" – streaks from center, strongest at edges (wind/speed shader style)
+  const dashBlue = "rgba(77,208,225,0.5)";
+  const numSpokes = 55;
+  const gapDeg = 360 / numSpokes;
+  const spokeWidthDeg = 0.75;
+  const conicStops: string[] = [];
+  for (let i = 0; i < numSpokes; i++) {
+    const start = i * gapDeg;
+    conicStops.push(`${dashBlue} ${start}deg`, `transparent ${start + spokeWidthDeg}deg`);
+  }
+  const conicGradient = `conic-gradient(from 0deg, ${conicStops.join(", ")})`;
+  const dashStreaks = document.createElement("div");
+  dashStreaks.id = "hud-dash-streaks";
+  dashStreaks.style.cssText = `
+    position: fixed; inset: 0;
+    pointer-events: none;
+    opacity: 0;
+    z-index: 0;
+    background-image: ${conicGradient};
+    mask-image: radial-gradient(ellipse 85% 85% at 50% 50%, transparent 30%, black 75%);
+    -webkit-mask-image: radial-gradient(ellipse 85% 85% at 50% 50%, transparent 30%, black 75%);
+    mask-size: 100% 100%;
+    -webkit-mask-size: 100% 100%;
+    transition: opacity 0.08s ease-out;
+  `;
+  container.appendChild(dashStreaks);
 
   // Weapon + ammo panel (bottom right): Ammo über Waffe, rechts Slot-Anzeige
   const weaponPanel = document.createElement("div");
@@ -179,7 +260,10 @@ export function updateHUD(
   ammo: number,
   maxAmmo: number,
   playerName: string,
-  debugMode?: boolean
+  debugMode?: boolean,
+  dashCooldownRemaining?: number,
+  dashCooldownTotal?: number,
+  isDashing?: boolean
 ): void {
   const isShieldState = shield > 0;
   const current = isShieldState ? shield : hp;
@@ -215,6 +299,30 @@ export function updateHUD(
     const current = debugMode ? "∞" : String(ammo);
     const maximum = debugMode ? "∞" : String(maxAmmo);
     infoEl.innerHTML = `<span style="color:#fff">${current}</span><span style="color:rgba(255,255,255,0.6)"> / ${maximum}</span>`;
+  }
+
+  const total = Math.max(0.001, dashCooldownTotal ?? 10);
+  const remaining = Math.max(0, dashCooldownRemaining ?? 0);
+  const fill = 1 - remaining / total;
+  const dashReady = remaining <= 0;
+  const dashCircle = document.getElementById("hud-dash-circle");
+  const dashIconEl = document.getElementById("hud-dash-icon");
+  if (dashCircle && dashIconEl) {
+    (dashCircle as HTMLElement).style.setProperty("--dash-fill", String(fill));
+    (dashCircle as HTMLElement).style.setProperty("--dash-fill-color", "#4dd0e1");
+    (dashIconEl as HTMLElement).style.color = dashReady ? "#4dd0e1" : "rgba(255,255,255,0.4)";
+    (dashIconEl as HTMLElement).style.filter = dashReady ? "none" : "grayscale(1)";
+  }
+  const linesLeft = document.getElementById("hud-dash-lines-left");
+  const linesRight = document.getElementById("hud-dash-lines-right");
+  const dashStreaks = document.getElementById("hud-dash-streaks");
+  const show = isDashing ?? false;
+  if (linesLeft && linesRight) {
+    (linesLeft as HTMLElement).style.opacity = show ? "1" : "0";
+    (linesRight as HTMLElement).style.opacity = show ? "1" : "0";
+  }
+  if (dashStreaks) {
+    (dashStreaks as HTMLElement).style.opacity = show ? "0.85" : "0";
   }
 
   const overlay = document.getElementById("respawn-overlay");

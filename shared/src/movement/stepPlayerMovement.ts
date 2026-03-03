@@ -20,6 +20,8 @@ export interface MovementStepInput {
   hasSlideIntent: boolean;
   /** True when C held. Crouch walk only (no slide). */
   crouch: boolean;
+  /** True when B pressed: request horizontal dash in move or look direction. */
+  dash: boolean;
   yaw: number;
   pitch: number;
 }
@@ -37,6 +39,14 @@ export interface MovementExtState {
   lastJumpHeld: boolean;
   /** Previous frame slide intent; used so slide-on-land only triggers on fresh Shift tap in air. */
   lastHasSlideIntent: boolean;
+  /** Cooldown (s) remaining before next dash. */
+  dashCooldownTimer: number;
+  /** Time (s) remaining in current dash impulse phase. */
+  dashActiveTimer: number;
+  /** Last dash direction X (world). For animation. */
+  lastDashDirX: number;
+  /** Last dash direction Z (world). For animation. */
+  lastDashDirZ: number;
 }
 
 export interface MovementStepState {
@@ -61,6 +71,10 @@ function createDefaultExt(): MovementExtState {
     lastApproachVz: 0,
     lastJumpHeld: false,
     lastHasSlideIntent: false,
+    dashCooldownTimer: 0,
+    dashActiveTimer: 0,
+    lastDashDirX: 0,
+    lastDashDirZ: 0,
   };
 }
 
@@ -68,6 +82,7 @@ function createDefaultExt(): MovementExtState {
 export function tickMovementTimers(ext: MovementExtState, dt: number): void {
   if (ext.slideJumpCooldownTimer > 0) ext.slideJumpCooldownTimer -= dt;
   if (ext.slideEnterCooldownTimer > 0) ext.slideEnterCooldownTimer -= dt;
+  if (ext.dashCooldownTimer > 0) ext.dashCooldownTimer -= dt;
 }
 
 /**
@@ -89,6 +104,60 @@ export function stepPlayerMovement(
   const hadSlideIntentLastFrame = ext.lastHasSlideIntent;
   const slidePressedThisFrame = input.hasSlideIntent && !hadSlideIntentLastFrame;
   ext.lastHasSlideIntent = input.hasSlideIntent;
+
+  // Start dash: input.dash, cooldown ready, not already in dash phase; direction from move input, else current velocity, else look
+  if (input.dash && ext.dashCooldownTimer <= 0 && ext.dashActiveTimer <= 0) {
+    const cos = Math.cos(input.yaw);
+    const sin = Math.sin(input.yaw);
+    let dx = input.moveX * cos - input.moveZ * sin;
+    let dz = -(input.moveX * sin + input.moveZ * cos);
+    let len = Math.hypot(dx, dz);
+    if (len < 0.01) {
+      const hor = Math.hypot(state.vx, state.vz);
+      // No input: use current horizontal movement direction if we have any
+      if (hor > 0.01) {
+        dx = state.vx / hor;
+        dz = state.vz / hor;
+        len = 1;
+      } else {
+        dx = -sin;
+        dz = -cos;
+        len = Math.hypot(dx, dz);
+      }
+    }
+    if (len > 0.01) {
+      dx /= len;
+      dz /= len;
+      state.vx = dx * t.dashSpeed;
+      state.vz = dz * t.dashSpeed;
+      ext.dashActiveTimer = t.dashDuration;
+      ext.dashCooldownTimer = t.dashCooldownSec;
+      ext.lastDashDirX = dx;
+      ext.lastDashDirZ = dz;
+    }
+  }
+
+  // Dash phase: constant horizontal speed, gravity, no friction
+  if (ext.dashActiveTimer > 0) {
+    ext.dashActiveTimer -= dt;
+    state.vy -= t.gravity * dt;
+    state.vy = Math.max(state.vy, -t.maxFallSpeed);
+    state.x += state.vx * dt;
+    state.y += state.vy * dt;
+    state.z += state.vz * dt;
+    if (state.y <= GROUND_Y) {
+      state.y = GROUND_Y;
+      state.vy = 0;
+    }
+    const wall: ArenaWallResult = resolveArenaWalls(state.x, state.z, playerRadius);
+    state.x = wall.x;
+    state.z = wall.z;
+    const velSlide = { x: state.vx, z: state.vz };
+    applyWallVelocitySlide(velSlide, wall);
+    state.vx = velSlide.x;
+    state.vz = velSlide.z;
+    return;
+  }
 
   if (state.movementState === "sliding") {
     ext.slideTime += dt;

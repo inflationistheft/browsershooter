@@ -63,7 +63,8 @@ import {
   MAX_HEALTH,
   SHOT_INTERVAL_TICKS,
   RELOAD_TICKS,
-  HITSCAN_RANGE,
+  HEAD_HITBOX_HEIGHT,
+  PLAYER_HEIGHT,
   type KillEventPayload,
 } from "shared";
 import { RemotePlayerSync } from "./game/RemotePlayerSync.js";
@@ -197,7 +198,7 @@ if (tunerParam === "1") {
 
   function enterPauseMenu(): void {
     if (uiState === UiState.Paused) return;
-    if (!pauseMenuHandle) {
+    if (!pauseMenuHandle && app) {
       pauseMenuHandle = createPauseMenu(app, {
         onResume: () => exitToGame(),
         onBackToLobby: () => {
@@ -207,7 +208,7 @@ if (tunerParam === "1") {
         onOpenSettings: () => openSettings(),
       });
     }
-    pauseMenuHandle.show();
+    pauseMenuHandle?.show();
     settingsMenuHandle?.hide();
     setUiState(UiState.Paused);
     if (input.isPointerLocked()) document.exitPointerLock();
@@ -222,7 +223,7 @@ if (tunerParam === "1") {
   }
 
   function openSettings(): void {
-    if (!settingsMenuHandle) {
+    if (!settingsMenuHandle && app) {
       settingsMenuHandle = createSettingsMenu(app, {
         onClose: () => {
           if (uiState === UiState.Settings) {
@@ -240,7 +241,7 @@ if (tunerParam === "1") {
         },
       });
     }
-    settingsMenuHandle.show(SettingsTab.Performance);
+    settingsMenuHandle?.show(SettingsTab.Performance);
     pauseMenuHandle?.hide();
     setUiState(UiState.Settings);
   }
@@ -465,6 +466,7 @@ if (tunerParam === "1") {
           pitch: snap.pitch,
           shotThisFrame,
           reloadProgress,
+          isDashing: movement.isDashing(),
         };
         updateViewmodelFrame(viewmodelState, movementInput);
         if (muzzleFlashPov) muzzleFlashPov.update(dt * 1000);
@@ -555,7 +557,19 @@ if (tunerParam === "1") {
       const playerName = (localPlayer?.id && localPlayer.id.trim().length > 0)
         ? localPlayer.id
         : room?.sessionId ?? "Player";
-      updateHUD(shield, maxShield, hp, maxHealth, ammo, maxAmmo, playerName, debugMode);
+      updateHUD(
+        shield,
+        maxShield,
+        hp,
+        maxHealth,
+        ammo,
+        maxAmmo,
+        playerName,
+        debugMode,
+        movement.getDashCooldownRemaining(),
+        movement.getDashCooldownTotal(),
+        movement.isDashing()
+      );
       updateScreenDamageFeedback(dt, shield, MAX_SHIELD, hp, MAX_HEALTH);
       updateHitIndicators(snap.yaw, snap.pitch, dt, debugMode);
       updateKillfeed(dt);
