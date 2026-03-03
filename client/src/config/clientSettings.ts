@@ -1,6 +1,7 @@
 export interface PerformanceSettings {
   renderScale: number;
   aaEnabled: boolean;
+  bulletTracersEnabled: boolean;
 }
 
 const STORAGE_KEY = "browsershooter:performanceSettings";
@@ -9,20 +10,24 @@ let currentPerformance: PerformanceSettings = loadInitial();
 
 function loadInitial(): PerformanceSettings {
   if (typeof window === "undefined") {
-    return { renderScale: 1, aaEnabled: false };
+    return { renderScale: 1, aaEnabled: false, bulletTracersEnabled: true };
   }
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { renderScale: 1, aaEnabled: false };
+    if (!raw) return { renderScale: 1, aaEnabled: false, bulletTracersEnabled: true };
     const parsed = JSON.parse(raw) as Partial<PerformanceSettings> | null;
     const scale =
       parsed && typeof parsed.renderScale === "number" && parsed.renderScale > 0
         ? parsed.renderScale
         : 1;
     const aa = !!parsed?.aaEnabled;
-    return { renderScale: scale, aaEnabled: aa };
+    const tracers =
+      parsed && typeof parsed.bulletTracersEnabled === "boolean"
+        ? parsed.bulletTracersEnabled
+        : true;
+    return { renderScale: scale, aaEnabled: aa, bulletTracersEnabled: tracers };
   } catch {
-    return { renderScale: 1, aaEnabled: false };
+    return { renderScale: 1, aaEnabled: false, bulletTracersEnabled: true };
   }
 }
 
@@ -44,6 +49,8 @@ export function applyPerformanceSettings(next: PerformanceSettings): void {
     renderScale:
       Number.isFinite(next.renderScale) && next.renderScale > 0 ? next.renderScale : 1,
     aaEnabled: !!next.aaEnabled,
+    bulletTracersEnabled:
+      typeof next.bulletTracersEnabled === "boolean" ? next.bulletTracersEnabled : true,
   };
   currentPerformance = normalized;
   persistPerformance(normalized);

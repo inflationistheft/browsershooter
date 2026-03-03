@@ -17,6 +17,10 @@ export interface PlayerExtendedState {
   slideEnterCooldownTimer?: number;
   slideOnLand?: boolean;
   horSpeedWhenJumped?: number;
+  lastApproachVx?: number;
+  lastApproachVz?: number;
+  lastJumpHeld?: boolean;
+  lastHasSlideIntent?: boolean;
   /** Cached hitbox world positions from client input. */
   headX?: number;
   headY?: number;

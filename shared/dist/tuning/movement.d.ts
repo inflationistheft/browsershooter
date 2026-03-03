@@ -41,6 +41,9 @@ export declare const movementTuning: {
     readonly wallBounceWindow: 0.2;
     readonly wallBounceReflectFactor: 0.85;
     readonly wallBounceSpeedMin: 6;
+    readonly wallBounceJumpMultiplier: 1;
+    readonly wallBounceBoostFactor: 1.08;
+    readonly wallBounceBoostMin: 8;
     readonly maxFallSpeed: 55;
 };
 export type MovementTuning = typeof movementTuning;

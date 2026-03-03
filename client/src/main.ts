@@ -63,6 +63,7 @@ import {
   MAX_HEALTH,
   SHOT_INTERVAL_TICKS,
   RELOAD_TICKS,
+  HITSCAN_RANGE,
   type KillEventPayload,
 } from "shared";
 import { RemotePlayerSync } from "./game/RemotePlayerSync.js";
@@ -91,6 +92,8 @@ import {
   handleKillEvent,
   updateKillfeed,
 } from "./systems/ui/Killfeed.js";
+import { BulletTracerSystem } from "./game/BulletTracerSystem.js";
+import { BulletImpactSystem } from "./game/BulletImpactSystem.js";
 
 const app = document.getElementById("app");
 if (!app) throw new Error("No #app");
@@ -118,6 +121,20 @@ if (tunerParam === "1") {
     antialias: initialPerf.aaEnabled,
     renderScale: initialPerf.renderScale,
   });
+  const tracerSystem = new BulletTracerSystem(sceneManager.getScene(), {
+    maxTracers: 32,
+    lifetimeMs: clientConfig.tracerMaxLifetimeMs,
+    color: clientConfig.tracerColor,
+    everyNthShot: clientConfig.tracerEveryNthShot,
+    lineRadius: clientConfig.tracerLineRadius,
+  });
+  const impactSystem = new BulletImpactSystem(sceneManager.getScene(), {
+    maxImpacts: 32,
+    lifetimeMs: clientConfig.tracerImpactLifetimeMs,
+    color: clientConfig.tracerColor,
+    size: clientConfig.tracerImpactSize,
+  });
+  tracerSystem.setEnabled(initialPerf.bulletTracersEnabled ?? clientConfig.tracerEnabledDefault);
   const cameraSystem = new FPSCamera(90, initW / initH || 16 / 9, 0.1, 1000);
   sceneManager.getScene().add(cameraSystem.getCamera());
   sceneManager.resize(initW, initH);
@@ -134,6 +151,8 @@ if (tunerParam === "1") {
     sceneManager,
     movement,
     playerAnimationSystem: undefined as unknown as PlayerAnimationSystem,
+    tracerSystem,
+    impactSystem,
   });
 
   function onPageUnload(): void {
@@ -213,6 +232,7 @@ if (tunerParam === "1") {
         onApplyPerformance: (perf) => {
           applyPerformanceSettings(perf);
           sceneManager.setPerformance(perf);
+          tracerSystem.setEnabled(perf.bulletTracersEnabled);
         },
         onApplyMouse: (inputSettings) => {
           applyInputSettings(inputSettings);
@@ -322,7 +342,8 @@ if (tunerParam === "1") {
         input.tick();
         return;
       }
-      shotThisFrame = false;
+      // Do not reset shotThisFrame here: it is consumed in render. Resetting here would drop
+      // the shot when multiple ticks run in one frame (first tick sets true, second tick overwrote false).
       if (clientShootCooldownTicks > 0) clientShootCooldownTicks--;
       if (clientReloadTicks > 0) clientReloadTicks--;
       if (state.debugModeJustPressed) debugMode = !debugMode;
@@ -340,6 +361,7 @@ if (tunerParam === "1") {
         snap.position.z
       );
       cameraSystem.setRotation(snap.yaw, snap.pitch);
+      const aimDir = cameraSystem.getAimDirection();
       const room = netClient.getRoom();
       if (room) {
         const localPlayer = room.state.players.get(room.sessionId);
@@ -378,7 +400,6 @@ if (tunerParam === "1") {
             clientShootCooldownTicks = SHOT_INTERVAL_TICKS;
           }
         }
-        const aimDir = cameraSystem.getAimDirection();
         const hitboxForInput = lastHitboxPositions ?? undefined;
         const shootEyePos = state.shoot ? cameraSystem.getEyePosition() : undefined;
         const playerInput = inputStateToPlayerInput(
@@ -391,7 +412,9 @@ if (tunerParam === "1") {
           shootEyePos
         );
         netClient.sendInput(playerInput);
-        if (playerInput.shoot) input.consumeOneShoot();
+        // Do not consume shoot: keep sending shoot=true every tick while button is held
+        // so server can fire at FIRE_RATE (cooldown-limited). Consuming caused only one
+        // shot intent per click and dropped sustained fire.
         inputTick++;
         remotePlayerSync.reconcile(room);
       }
@@ -412,8 +435,24 @@ if (tunerParam === "1") {
       if (localPlayerMixer) localPlayerMixer.update(dt);
       if (playerViewModel) playerViewModel.updateMatrixWorld(true);
       if (viewmodelState) {
-        if (shotThisFrame && viewmodelState.muzzleNodeRef && muzzleFlashPov) {
-          muzzleFlashPov.trigger(viewmodelState.muzzleNodeRef);
+        if (shotThisFrame && viewmodelState.muzzleNodeRef) {
+          const aimDir = cameraSystem.getAimDirection();
+          const camera = cameraSystem.getCamera();
+          const eyePos = camera.position.clone();
+          const eyeHitPoint = eyePos
+            .clone()
+            .addScaledVector(
+              aimDir,
+              clientConfig.tracerFirstPersonLength ?? 20
+            );
+          const muzzleWorld = new THREE.Vector3();
+          viewmodelState.muzzleNodeRef.getWorldPosition(muzzleWorld);
+          const tracerDir = eyeHitPoint.clone().sub(muzzleWorld).normalize();
+          const tracerLength = eyeHitPoint.distanceTo(muzzleWorld);
+          tracerSystem.spawnTracer(muzzleWorld, tracerDir, tracerLength);
+          if (muzzleFlashPov) {
+            muzzleFlashPov.trigger(viewmodelState.muzzleNodeRef);
+          }
         }
         const reloadProgress =
           clientReloadTicks > 0 ? 1 - clientReloadTicks / RELOAD_TICKS : 0;
@@ -521,6 +560,8 @@ if (tunerParam === "1") {
       updateHitIndicators(snap.yaw, snap.pitch, dt, debugMode);
       updateKillfeed(dt);
       updateCrosshairHitFeedback(dt);
+      tracerSystem.update(dt * 1000);
+      impactSystem.update(dt * 1000);
       if (clientConfig.debugOverlay) {
         const netInfo =
           room !== null
@@ -555,14 +596,79 @@ if (tunerParam === "1") {
       const room = netClient.getRoom();
       if (room) {
         remotePlayerSync.setup(room);
-        room.onMessage("hit", (payload: { targetId: string }) => {
-          onPlayerHit(payload.targetId);
-          triggerCrosshairHit();
-        });
+        room.onMessage(
+          "hit",
+          (payload: {
+            targetId: string;
+            hitboxType?: "head" | "body";
+            hitX?: number;
+            hitY?: number;
+            hitZ?: number;
+          }) => {
+            onPlayerHit(payload.targetId);
+            triggerCrosshairHit();
+            // Impact at the actual hit point if the server provided it
+            if (
+              payload.hitX !== undefined &&
+              payload.hitY !== undefined &&
+              payload.hitZ !== undefined
+            ) {
+              impactSystem.spawnImpact({
+                x: payload.hitX,
+                y: payload.hitY,
+                z: payload.hitZ,
+              });
+              return;
+            }
+            // Fallback: approximate impact on remote player for the shooter
+            const target = room.state.players.get(payload.targetId);
+            if (target) {
+              const yOffset =
+                payload.hitboxType === "head"
+                  ? HEAD_HITBOX_HEIGHT
+                  : PLAYER_HEIGHT * 0.5;
+              impactSystem.spawnImpact({
+                x: target.x,
+                y: target.y + yOffset,
+                z: target.z,
+              });
+            }
+          }
+        );
         room.onMessage(
           "hitReceived",
-          (payload: { dirX: number; dirY: number; dirZ: number }) => {
+          (payload: {
+            dirX: number;
+            dirY: number;
+            dirZ: number;
+            hitX?: number;
+            hitY?: number;
+            hitZ?: number;
+          }) => {
             onHitReceived(payload.dirX, payload.dirY, payload.dirZ);
+            // Impact at the actual hit point (where the bullet hit the victim), not in front of the camera
+            if (
+              payload.hitX !== undefined &&
+              payload.hitY !== undefined &&
+              payload.hitZ !== undefined
+            ) {
+              impactSystem.spawnImpact({
+                x: payload.hitX,
+                y: payload.hitY,
+                z: payload.hitZ,
+              });
+            } else {
+              const cam = cameraSystem.getCamera();
+              const eyePos = cam.position.clone();
+              const dir = new THREE.Vector3(
+                payload.dirX,
+                payload.dirY,
+                payload.dirZ
+              ).normalize();
+              impactSystem.spawnImpact(
+                eyePos.clone().addScaledVector(dir, 1)
+              );
+            }
           }
         );
         room.onMessage("kill", (payload: KillEventPayload) => {
@@ -571,6 +677,44 @@ if (tunerParam === "1") {
             triggerCrosshairKill();
           }
         });
+        room.onMessage(
+          "shot",
+          (payload: {
+            shooterId: string;
+            ox: number;
+            oy: number;
+            oz: number;
+            dx: number;
+            dy: number;
+            dz: number;
+            hitX?: number;
+            hitY?: number;
+            hitZ?: number;
+          }) => {
+            remotePlayerSync.onShot(payload);
+            // For the local shooter, also snap the POV tracer and spark to the authoritative hit point.
+            if (
+              payload.shooterId === room.sessionId &&
+              payload.hitX !== undefined &&
+              payload.hitY !== undefined &&
+              payload.hitZ !== undefined
+            ) {
+              const hitPoint = new THREE.Vector3(
+                payload.hitX,
+                payload.hitY,
+                payload.hitZ
+              );
+              if (viewmodelState?.muzzleNodeRef) {
+                const muzzleWorld = new THREE.Vector3();
+                viewmodelState.muzzleNodeRef.getWorldPosition(muzzleWorld);
+                const dir = hitPoint.clone().sub(muzzleWorld).normalize();
+                const length = muzzleWorld.distanceTo(hitPoint);
+                tracerSystem.retargetLast(muzzleWorld, dir, length);
+              }
+              impactSystem.spawnImpact(hitPoint);
+            }
+          }
+        );
         await remotePlayerSync.waitForLocalSpawnAndSync(room);
       }
     }

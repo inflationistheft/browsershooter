@@ -12,6 +12,9 @@ function createDefaultExt() {
         slideJumpCooldownTimer: 0,
         slideOnLand: false,
         horSpeedWhenJumped: 0,
+        lastApproachVx: 0,
+        lastApproachVz: 0,
+        lastJumpHeld: false,
     };
 }
 /** Advance movement ext timers (call before step). */
@@ -28,6 +31,8 @@ export function tickMovementTimers(ext, dt) {
 export function stepPlayerMovement(state, input, dt, playerRadius) {
     const t = movementTuning;
     const ext = state.ext;
+    const jumpPressedThisFrame = input.jumpHeld && !ext.lastJumpHeld;
+    ext.lastJumpHeld = input.jumpHeld;
     if (state.movementState === "sliding") {
         ext.slideTime += dt;
         const hor = Math.hypot(state.vx, state.vz);
@@ -73,6 +78,8 @@ export function stepPlayerMovement(state, input, dt, playerRadius) {
             state.vz *= mult;
             ext.horSpeedWhenJumped = Math.hypot(state.vx, state.vz);
             ext.slideJumpCooldownTimer = t.slideJumpCooldown;
+            ext.lastApproachVx = state.vx;
+            ext.lastApproachVz = state.vz;
             state.movementState = "airborne";
         }
         else if (!stillSliding) {
@@ -123,6 +130,70 @@ export function stepPlayerMovement(state, input, dt, playerRadius) {
         const wall = resolveArenaWalls(state.x, state.z, playerRadius);
         state.x = wall.x;
         state.z = wall.z;
+        const hasWallNormal = (wall.normalX !== undefined && wall.normalX !== 0) ||
+            (wall.normalZ !== undefined && wall.normalZ !== 0);
+        if (hasWallNormal) {
+            const nx = wall.normalX ?? 0;
+            const nz = wall.normalZ ?? 0;
+            const approachVx = ext.lastApproachVx;
+            const approachVz = ext.lastApproachVz;
+            const horSpeedApproach = Math.hypot(approachVx, approachVz);
+            const dot = approachVx * nx + approachVz * nz;
+            // #region agent log
+            fetch("http://127.0.0.1:7291/ingest/e6ca52ac-ce07-4922-9b3f-cd33fd3e1212", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-Debug-Session-Id": "e78fd8",
+                },
+                body: JSON.stringify({
+                    sessionId: "e78fd8",
+                    runId: "post-fix",
+                    hypothesisId: "wallbounce-conditions",
+                    location: "shared/src/movement/stepPlayerMovement.ts:airborne",
+                    message: "airborne wall contact",
+                    data: {
+                        jumpPressedThisFrame,
+                        jumpHeld: input.jumpHeld,
+                        horSpeedApproach,
+                        minSpeed: t.wallBounceSpeedMin,
+                        dot,
+                        nx,
+                        nz,
+                        movementState: state.movementState,
+                    },
+                    timestamp: Date.now(),
+                }),
+            }).catch(() => { });
+            // #endregion agent log
+            if (jumpPressedThisFrame && horSpeedApproach >= t.wallBounceSpeedMin && dot > 0) {
+                let rx = approachVx - 2 * dot * nx;
+                let rz = approachVz - 2 * dot * nz;
+                rx *= t.wallBounceReflectFactor;
+                rz *= t.wallBounceReflectFactor;
+                let horAfter = Math.hypot(rx, rz);
+                const desired = Math.max(horAfter * t.wallBounceBoostFactor, t.wallBounceBoostMin);
+                if (horAfter > 0 && desired > horAfter) {
+                    rx *= desired / horAfter;
+                    rz *= desired / horAfter;
+                    horAfter = desired;
+                }
+                state.vx = rx;
+                state.vz = rz;
+                state.vy = t.jumpForce * t.wallBounceJumpMultiplier;
+                ext.horSpeedWhenJumped = horAfter;
+                ext.slideJumpCooldownTimer = t.slideJumpCooldown;
+                const velAirBounce = { x: state.vx, z: state.vz };
+                applyWallVelocitySlide(velAirBounce, wall);
+                state.vx = velAirBounce.x;
+                state.vz = velAirBounce.z;
+                return;
+            }
+        }
+        else {
+            ext.lastApproachVx = state.vx;
+            ext.lastApproachVz = state.vz;
+        }
         const velAir = { x: state.vx, z: state.vz };
         applyWallVelocitySlide(velAir, wall);
         state.vx = velAir.x;
@@ -162,6 +233,8 @@ export function stepPlayerMovement(state, input, dt, playerRadius) {
     if (input.jump) {
         state.vy = t.jumpForce;
         ext.horSpeedWhenJumped = Math.hypot(state.vx, state.vz);
+        ext.lastApproachVx = state.vx;
+        ext.lastApproachVz = state.vz;
         state.movementState = "airborne";
     }
     else {

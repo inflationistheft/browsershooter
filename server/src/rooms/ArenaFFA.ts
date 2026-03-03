@@ -27,6 +27,7 @@ import {
   BODY_CAPSULE_TOP,
   BODY_CAPSULE_RADIUS,
   BODY_CAPSULE_TOP_EXTEND,
+  BULLET_RADIUS,
   raySphereIntersection,
   rayCapsuleIntersection,
   DEBUG_HEAD_ONLY,
@@ -145,6 +146,11 @@ export class ArenaFFARoom extends Room<ArenaState> {
           ext.slideJumpCooldownTimer = undefined;
           ext.slideEnterCooldownTimer = undefined;
           ext.slideOnLand = false;
+          ext.horSpeedWhenJumped = 0;
+          ext.lastApproachVx = 0;
+          ext.lastApproachVz = 0;
+          ext.lastJumpHeld = false;
+          ext.lastHasSlideIntent = false;
         }
         return;
       }
@@ -179,6 +185,30 @@ export class ArenaFFARoom extends Room<ArenaState> {
         },
         set horSpeedWhenJumped(v: number) {
           ext.horSpeedWhenJumped = v;
+        },
+        get lastApproachVx() {
+          return ext.lastApproachVx ?? 0;
+        },
+        set lastApproachVx(v: number) {
+          ext.lastApproachVx = v;
+        },
+        get lastApproachVz() {
+          return ext.lastApproachVz ?? 0;
+        },
+        set lastApproachVz(v: number) {
+          ext.lastApproachVz = v;
+        },
+        get lastJumpHeld() {
+          return ext.lastJumpHeld ?? false;
+        },
+        set lastJumpHeld(v: boolean) {
+          ext.lastJumpHeld = v;
+        },
+        get lastHasSlideIntent() {
+          return ext.lastHasSlideIntent ?? false;
+        },
+        set lastHasSlideIntent(v: boolean) {
+          ext.lastHasSlideIntent = v;
         },
       };
       tickMovementTimers(movementExt, dtSec);
@@ -230,6 +260,7 @@ export class ArenaFFARoom extends Room<ArenaState> {
           moveX: lastInput.moveX ?? 0,
           moveZ: lastInput.moveZ ?? 0,
           jump: lastInput.jump ?? false,
+          jumpHeld: lastInput.jump ?? false,
           hasSlideIntent,
           crouch,
           yaw: player.yaw,
@@ -291,7 +322,7 @@ export class ArenaFFARoom extends Room<ArenaState> {
         const hitResult = this.hitscanRaycast(shooterId, player, crouching, lastInput);
         if (hitResult) {
           const target = this.state.players.get(hitResult.targetId);
-          if (target) {
+              if (target) {
             const wasAlive = target.health > 0;
             const headDamage =
               target.shield > 0
@@ -315,6 +346,9 @@ export class ArenaFFARoom extends Room<ArenaState> {
                 targetId: hitResult.targetId,
                 damage: actualDamage,
                 hitboxType: hitResult.hitboxType,
+                hitX: hitResult.hitX,
+                hitY: hitResult.hitY,
+                hitZ: hitResult.hitZ,
               });
             }
             const targetClient = Array.from(this.clients).find(
@@ -330,6 +364,9 @@ export class ArenaFFARoom extends Room<ArenaState> {
                 dirY: dirY / len,
                 dirZ: dirZ / len,
                 damage: actualDamage,
+                hitX: hitResult.hitX,
+                hitY: hitResult.hitY,
+                hitZ: hitResult.hitZ,
               });
             }
             if (wasAlive && target.health <= 0) {
@@ -448,7 +485,7 @@ export class ArenaFFARoom extends Room<ArenaState> {
     shooter: PlayerStateSchema,
     crouching: boolean,
     lastInput?: Partial<PlayerInput>
-  ): { targetId: string; hitboxType: "head" | "body" } | null {
+  ): { targetId: string; hitboxType: "head" | "body"; hitX: number; hitY: number; hitZ: number } | null {
     const eyeHeight = crouching ? CROUCH_EYE_HEIGHT : PLAYER_EYE_HEIGHT;
 
     // Prefer shot-tied position when shooting (exact frame data)
@@ -550,7 +587,7 @@ export class ArenaFFARoom extends Room<ArenaState> {
       const tHead = raySphereIntersection(
         ox, oy, oz, dx, dy, dz,
         headCx, headCy, headCz,
-        HEAD_HITBOX_RADIUS
+        HEAD_HITBOX_RADIUS + BULLET_RADIUS
       );
       if (tHead !== null && tHead > 0 && tHead <= HITSCAN_RANGE && tHead < bestT) {
         const los = rayArenaIntersection(ox, oy, oz, dx, dy, dz, tHead);
@@ -575,7 +612,7 @@ export class ArenaFFARoom extends Room<ArenaState> {
           bcx, 0, bcz,
           targetExt.feetY!,
           bodyTopY,
-          BODY_CAPSULE_RADIUS
+          BODY_CAPSULE_RADIUS + BULLET_RADIUS
         );
       } else {
         tBody = rayCapsuleIntersection(
@@ -583,7 +620,7 @@ export class ArenaFFARoom extends Room<ArenaState> {
           p.x, p.y, p.z,
           0,
           BODY_CAPSULE_TOP,
-          BODY_CAPSULE_RADIUS
+          BODY_CAPSULE_RADIUS + BULLET_RADIUS
         );
       }
 
@@ -597,7 +634,50 @@ export class ArenaFFARoom extends Room<ArenaState> {
       }
     });
 
-    return bestId ? { targetId: bestId, hitboxType: bestType } : null;
+    // Determine where the visible shot should end for tracers / sparks.
+    let shotHitX: number | undefined;
+    let shotHitY: number | undefined;
+    let shotHitZ: number | undefined;
+
+    if (bestId) {
+      shotHitX = ox + dx * bestT;
+      shotHitY = oy + dy * bestT;
+      shotHitZ = oz + dz * bestT;
+    } else {
+      const arenaHit = rayArenaIntersection(ox, oy, oz, dx, dy, dz, HITSCAN_RANGE);
+      if (arenaHit.hit && arenaHit.t !== undefined) {
+        shotHitX = ox + dx * arenaHit.t;
+        shotHitY = oy + dy * arenaHit.t;
+        shotHitZ = oz + dz * arenaHit.t;
+      }
+    }
+
+    // Broadcast shot ray for client-side tracers (3P) plus optional hit point
+    // so that the visible tracer and spark stop exactly at the impact.
+    this.broadcast("shot", {
+      shooterId,
+      ox,
+      oy,
+      oz,
+      dx,
+      dy,
+      dz,
+      hitX: shotHitX,
+      hitY: shotHitY,
+      hitZ: shotHitZ,
+    });
+
+    if (!bestId || shotHitX === undefined || shotHitY === undefined || shotHitZ === undefined) {
+      return null;
+    }
+
+    return {
+      targetId: bestId,
+      hitboxType: bestType,
+      hitX: shotHitX,
+      hitY: shotHitY,
+      hitZ: shotHitZ,
+    };
   }
 
   private broadcastKillEvent(payload: KillEventPayload): void {

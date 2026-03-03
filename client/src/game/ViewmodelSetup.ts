@@ -131,19 +131,6 @@ export async function initViewmodel(
   viewmodelRoot.add(viewmodelHolder);
   camera.add(viewmodelRoot);
 
-  if (import.meta.env?.DEV) {
-    const meshNames: string[] = [];
-    viewmodelModel.traverse((o) => {
-      if ((o as THREE.Mesh).isMesh) meshNames.push((o as THREE.Mesh).name || "(unnamed)");
-    });
-    console.info("[Viewmodel] Using", isArmsOnly ? "POV arms" : "player fallback", {
-      source: isArmsOnly ? clientConfig.viewmodelArmsUrl : clientConfig.playerModelUrl,
-      meshNames,
-      pos: viewmodelModel.position.toArray(),
-      scale: viewmodelModel.scale.x,
-    });
-  }
-
   viewmodelModel.traverse((obj) => {
     obj.frustumCulled = false;
     const mesh = obj as THREE.Mesh;

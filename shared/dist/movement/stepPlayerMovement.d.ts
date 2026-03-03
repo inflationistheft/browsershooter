@@ -5,7 +5,10 @@
 export interface MovementStepInput {
     moveX: number;
     moveZ: number;
+    /** Buffered/processed jump used for takeoff (ground/slide). */
     jump: boolean;
+    /** Rohes Jump-Input (Space gehalten); für Midair-Actions wie Wall-Bounce. */
+    jumpHeld: boolean;
     /** True when Shift held or slideIntentTicks > 0. Triggers slide when moving fast. */
     hasSlideIntent: boolean;
     /** True when C held. Crouch walk only (no slide). */
@@ -19,6 +22,11 @@ export interface MovementExtState {
     slideJumpCooldownTimer: number;
     slideOnLand: boolean;
     horSpeedWhenJumped: number;
+    /** Velocity when last not at a wall (airborne); used for wall-bounce dot so we see approach, not post-slide. */
+    lastApproachVx: number;
+    lastApproachVz: number;
+    /** Previous frame jump key state; used to detect fresh Space tap for wall-bounce. */
+    lastJumpHeld: boolean;
 }
 export interface MovementStepState {
     x: number;

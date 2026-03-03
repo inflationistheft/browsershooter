@@ -37,6 +37,10 @@ export class FPSMovementController {
     slideJumpCooldownTimer: 0,
     slideOnLand: false,
     horSpeedWhenJumped: 0,
+    lastApproachVx: 0,
+    lastApproachVz: 0,
+    lastJumpHeld: false,
+    lastHasSlideIntent: false,
   };
 
   update(dt: number, input: Readonly<InputState>, _physics: { raycast?: () => boolean }): void {
@@ -55,6 +59,7 @@ export class FPSMovementController {
       moveX: input.moveX,
       moveZ: input.moveZ,
       jump: effectiveJump,
+      jumpHeld: input.jump,
       hasSlideIntent,
       crouch: input.crouch,
       yaw: input.yaw,

@@ -218,6 +218,28 @@ export function createSettingsMenu(
   aaRow.appendChild(aaCheckbox);
   perfForm.appendChild(aaRow);
 
+  const tracerRow = document.createElement("div");
+  tracerRow.style.cssText = `
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  `;
+  const tracerLabel = document.createElement("div");
+  tracerLabel.textContent = "Bullet tracers";
+  tracerLabel.style.cssText = `
+    font-size: 14px;
+    color: #c7e3ff;
+  `;
+  const tracerCheckbox = document.createElement("input");
+  tracerCheckbox.type = "checkbox";
+  tracerCheckbox.style.cssText = `
+    width: 16px;
+    height: 16px;
+  `;
+  tracerRow.appendChild(tracerLabel);
+  tracerRow.appendChild(tracerCheckbox);
+  perfForm.appendChild(tracerRow);
+
   const applyRow = document.createElement("div");
   applyRow.style.cssText = `
     display: flex;
@@ -242,6 +264,7 @@ export function createSettingsMenu(
     const perf: PerformanceSettings = {
       renderScale: scale,
       aaEnabled: aaCheckbox.checked,
+      bulletTracersEnabled: tracerCheckbox.checked,
     };
     callbacks.onApplyPerformance(perf);
     showStatus("Performance changes applied");
@@ -351,6 +374,10 @@ export function createSettingsMenu(
     }, scaleOptions[0]);
     scaleSelect.value = String(closest.value);
     aaCheckbox.checked = currentPerf.aaEnabled;
+    tracerCheckbox.checked =
+      typeof currentPerf.bulletTracersEnabled === "boolean"
+        ? currentPerf.bulletTracersEnabled
+        : true;
 
     const input = getInputSettings();
     const sens = Math.max(0.5, Math.min(2, input.mouseSensitivity || 1));

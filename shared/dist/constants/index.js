@@ -20,6 +20,8 @@ export const MAX_HEALTH = 50;
 export const PLAYER_HITBOX_CENTER_HEIGHT = 0.9;
 /** Hitscan: target sphere radius (meters). @deprecated Use HEAD_HITBOX_RADIUS / BODY_CAPSULE_RADIUS. */
 export const HITSCAN_TARGET_RADIUS = 0.6;
+/** Virtual bullet radius (m) for hitscan weapons to slightly widen the effective ray. */
+export const BULLET_RADIUS = 0.06;
 /** Head hitbox: center height above feet (meters). */
 export const HEAD_HITBOX_HEIGHT = 1.6;
 /** Head hitbox: sphere radius. Fits head with small margin (~0.11m head, 0.02m buffer). */
@@ -35,7 +37,7 @@ export const BODY_CAPSULE_BOTTOM = 0.2;
 /** Body capsule: top Y offset from feet (meters). Reduced when radius increases to keep total height constant. */
 export const BODY_CAPSULE_TOP = 1.41;
 /** Body capsule: radius (torso + shoulders + legs). */
-export const BODY_CAPSULE_RADIUS = 0.26;
+export const BODY_CAPSULE_RADIUS = 0.29;
 /** Extra height (m) above spineTop to cover neck gap. */
 export const BODY_CAPSULE_TOP_EXTEND = 0.02;
 /** Hitscan: max range in meters. */
@@ -53,7 +55,7 @@ export const SHOT_INTERVAL_TICKS = Math.ceil(TICK_RATE / FIRE_RATE);
 /** Reload duration in ticks (30 Hz). ~1.5 s. */
 export const RELOAD_TICKS = 45;
 /** Shield/health regen: delay after last damage (seconds) before regen starts. */
-export const REGEN_DELAY_SEC = 2.25;
+export const REGEN_DELAY_SEC = 3;
 /** Shield/health regen: delay in ticks. */
 export const REGEN_DELAY_TICKS = Math.ceil(REGEN_DELAY_SEC * TICK_RATE);
 /** Shield regeneration rate (points per second). */

@@ -135,6 +135,21 @@ export const clientConfig = {
   /** Muzzle flash sprite size for 3P (remote players). */
   muzzleFlashScale3P: 0.11,
 
+  /** Bullet tracer visual config (client-only, no gameplay impact). */
+  tracerEnabledDefault: true,
+  tracerMaxLifetimeMs: 100,
+  tracerEveryNthShot: 1,
+  // Warm, aber etwas dunkler als Muzzle Flash, damit er das Ziel nicht überstrahlt.
+  tracerColor: 0xffc070,
+  /** Tracer line radius in world units (cylinder). 0.01 = schlanker Strahl. */
+  tracerLineRadius: 0.01,
+  tracerImpactLifetimeMs: 90,
+  tracerImpactSize: 0.08,
+  /** Horizontal offset (m) to nudge tracer origin toward screen center to hide parallax while strafing. */
+  tracerMuzzleSideOffset: 0.03,
+  /** Tracer length in meters for local first-person view. */
+  tracerFirstPersonLength: 20,
+
   /**
    * Override animation clip names if your GLB uses different names.
    * Keys: idle, walk, walkBackwards, strafeLeft, strafeRight, strafeLeftFast, strafeRightFast,

@@ -42,6 +42,9 @@ export const movementTuning = {
   wallBounceWindow: 0.2,
   wallBounceReflectFactor: 0.85,
   wallBounceSpeedMin: 6,
+  wallBounceJumpMultiplier: 1.0,
+  wallBounceBoostFactor: 1.08,
+  wallBounceBoostMin: 8,
   maxFallSpeed: 55,
 } as const;
 

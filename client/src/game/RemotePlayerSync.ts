@@ -18,12 +18,16 @@ import type { PlayerAnimationSystem } from "../systems/animation/PlayerAnimation
 import type { SceneManager } from "../systems/rendering/SceneManager.js";
 import type { FPSMovementController } from "../systems/movement/FPSMovementController.js";
 import type { AnimationClipId } from "shared";
+import { BulletTracerSystem } from "./BulletTracerSystem.js";
+import { BulletImpactSystem } from "./BulletImpactSystem.js";
 
 
 export interface RemotePlayerSyncDeps {
   sceneManager: SceneManager;
   movement: FPSMovementController;
   playerAnimationSystem?: PlayerAnimationSystem;
+  tracerSystem?: BulletTracerSystem;
+  impactSystem?: BulletImpactSystem;
 }
 
 export class RemotePlayerSync {
@@ -53,11 +57,63 @@ export class RemotePlayerSync {
   private _handPos3p = new THREE.Vector3();
   private _handQuat3p = new THREE.Quaternion();
   private _offsetVec3p = new THREE.Vector3();
+  private tracerSystem?: BulletTracerSystem;
+  private impactSystem?: BulletImpactSystem;
 
   constructor(deps: RemotePlayerSyncDeps) {
     this.sceneManager = deps.sceneManager;
     this.movement = deps.movement;
     this.playerAnimationSystem = deps.playerAnimationSystem!;
+    this.tracerSystem = deps.tracerSystem;
+    this.impactSystem = deps.impactSystem;
+  }
+
+  onShot(payload: {
+    shooterId: string;
+    ox: number;
+    oy: number;
+    oz: number;
+    dx: number;
+    dy: number;
+    dz: number;
+    hitX?: number;
+    hitY?: number;
+    hitZ?: number;
+  }): void {
+    if (!this.tracerSystem) return;
+    const weaponRef = this.remotePlayerWeaponContainers.get(payload.shooterId);
+    if (!weaponRef) return;
+
+    const muzzleWorld = new THREE.Vector3();
+    weaponRef.muzzleNode.getWorldPosition(muzzleWorld);
+
+    const dir = new THREE.Vector3(payload.dx, payload.dy, payload.dz).normalize();
+    const origin = new THREE.Vector3(payload.ox, payload.oy, payload.oz);
+
+    let length = clientConfig.tracerFirstPersonLength ?? 20;
+    let impactPoint: THREE.Vector3 | null = null;
+
+    if (
+      payload.hitX !== undefined &&
+      payload.hitY !== undefined &&
+      payload.hitZ !== undefined
+    ) {
+      // Use the actual impact position so tracer and spark end am selben Punkt.
+      impactPoint = new THREE.Vector3(payload.hitX, payload.hitY, payload.hitZ);
+      length = muzzleWorld.distanceTo(impactPoint);
+      const tracerDir = impactPoint.clone().sub(muzzleWorld).normalize();
+      this.tracerSystem.spawnTracer(muzzleWorld, tracerDir, length);
+    } else {
+      // Fallback: follow server ray from muzzle with fixed length.
+      const tracerDir = dir;
+      length = clientConfig.tracerFirstPersonLength ?? 20;
+      this.tracerSystem.spawnTracer(muzzleWorld, tracerDir, length);
+      impactPoint = origin.clone().addScaledVector(dir, length);
+    }
+
+    if (this.impactSystem && impactPoint) {
+      this.impactSystem.spawnImpact(impactPoint);
+    }
   }
 
   setPlayerAnimationSystem(system: PlayerAnimationSystem): void {
