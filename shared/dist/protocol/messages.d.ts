@@ -3,6 +3,15 @@
  * Colyseus schema will be generated from or aligned with these.
  */
 import type { PlayerInput } from "../types/index.js";
+/** Identifier for weapon used in a kill event. */
+export type WeaponId = "rifle";
+/** Server->client payload when a player kills another player. */
+export interface KillEventPayload {
+    killerId: string;
+    victimId: string;
+    weaponId: WeaponId;
+    isHeadshot: boolean;
+}
 export type ClientMessage = {
     type: "input";
     payload: PlayerInput;
@@ -32,5 +41,8 @@ export type ServerMessage = {
         dirZ: number;
         damage?: number;
     };
+} | {
+    type: "kill";
+    payload: KillEventPayload;
 };
 //# sourceMappingURL=messages.d.ts.map

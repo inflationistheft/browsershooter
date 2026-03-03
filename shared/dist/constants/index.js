@@ -43,7 +43,7 @@ export const HITSCAN_RANGE = 200;
 /** Damage per hit. @deprecated Use HITSCAN_BODY_DAMAGE. */
 export const HITSCAN_DAMAGE = 13;
 /** Single-shot: body damage per hit. */
-export const HITSCAN_BODY_DAMAGE = 22;
+export const HITSCAN_BODY_DAMAGE = 25;
 /** Headshot multiplier when shield == 0. No bonus when shield > 0. */
 export const HITSCAN_HEAD_MULTIPLIER = 1.8;
 /** Fire rate (shots/sec). Single-shot semi-auto. */
