@@ -21,7 +21,7 @@ export interface InputState {
   reload: boolean;
   /** Q: horizontal dash in move or look direction. */
   dash: boolean;
-  /** True on keydown of F3 (debug toggle). Consumed by tick(). */
+  /** True on keydown of B (debug toggle). Consumed by tick(). */
   debugModeJustPressed: boolean;
 }
 
@@ -179,7 +179,7 @@ export class InputSampler {
       this.state.jump = down;
     }
     if (code === "KeyR") this.state.reload = down;
-    if (code === "F3" && down) {
+    if (code === "KeyB" && down) {
       e.preventDefault();
       this.state.debugModeJustPressed = true;
     }
