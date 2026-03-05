@@ -14,6 +14,7 @@ export class SceneManager {
   readonly scene = new THREE.Scene();
   readonly renderer: THREE.WebGLRenderer;
   private readonly floor: THREE.Mesh;
+  private mapGroup: THREE.Group | null = null;
   private renderScale = 1;
 
   constructor(canvas: HTMLCanvasElement, perf?: ScenePerformanceOptions) {
@@ -109,6 +110,16 @@ export class SceneManager {
 
   getScene(): THREE.Scene {
     return this.scene;
+  }
+
+  setMapGroup(group: THREE.Group | null): void {
+    if (this.mapGroup) {
+      this.scene.remove(this.mapGroup);
+    }
+    this.mapGroup = group;
+    if (this.mapGroup) {
+      this.scene.add(this.mapGroup);
+    }
   }
 
   setPerformance(perf: { renderScale: number; aaEnabled: boolean }): void {

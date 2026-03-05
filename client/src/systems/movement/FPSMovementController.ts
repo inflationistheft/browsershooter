@@ -3,9 +3,16 @@
  * Uses shared stepPlayerMovement for deterministic physics. Adds coyote/jump-buffer for client feel.
  */
 
-import type { Vec3 } from "shared";
+import type { Vec3, StaticWorld } from "shared";
 import type { InputState } from "../input/InputState.js";
-import { movementTuning, stepPlayerMovement, tickMovementTimers, PLAYER_RADIUS } from "shared";
+import {
+  movementTuning,
+  stepPlayerMovement,
+  tickMovementTimers,
+  PLAYER_RADIUS,
+  getGroundYAt,
+  isOnRamp,
+} from "shared";
 
 export type MovementStateName = "grounded" | "sliding" | "airborne";
 
@@ -31,6 +38,7 @@ export class FPSMovementController {
   private crouching = false;
   private coyoteTimer = 0;
   private jumpBufferTimer = 0;
+  private staticWorld: StaticWorld | undefined;
   private ext = {
     slideTime: 0,
     slideEnterCooldownTimer: 0,
@@ -46,6 +54,10 @@ export class FPSMovementController {
     lastDashDirX: 0,
     lastDashDirZ: 0,
   };
+
+  setStaticWorld(world: StaticWorld | undefined): void {
+    this.staticWorld = world;
+  }
 
   update(dt: number, input: Readonly<InputState>, _physics: { raycast?: () => boolean }): void {
     const t = movementTuning;
@@ -81,7 +93,7 @@ export class FPSMovementController {
       ext: this.ext,
     };
 
-    stepPlayerMovement(movementState, movementInput, dt, PLAYER_RADIUS);
+    stepPlayerMovement(movementState, movementInput, dt, PLAYER_RADIUS, this.staticWorld);
 
     this.position.x = movementState.x;
     this.position.y = movementState.y;
@@ -129,5 +141,29 @@ export class FPSMovementController {
   /** True while dash impulse is active. For VFX/anim. */
   isDashing(): boolean {
     return this.ext.dashActiveTimer > 0;
+  }
+
+  /** For debug overlay: ground Y under feet, player Y, onRamp. Null when no static world. */
+  getGroundDebugInfo(): { groundY: number; playerY: number; onRamp: boolean } | null {
+    if (!this.staticWorld) return null;
+    const groundY = getGroundYAt(
+      this.position.x,
+      this.position.z,
+      this.staticWorld,
+      PLAYER_RADIUS,
+      this.position.y
+    );
+    const onRamp = isOnRamp(
+      this.position.x,
+      this.position.z,
+      this.staticWorld,
+      PLAYER_RADIUS,
+      this.position.y
+    );
+    return {
+      groundY: Number.isFinite(groundY) ? groundY : this.position.y,
+      playerY: this.position.y,
+      onRamp,
+    };
   }
 }

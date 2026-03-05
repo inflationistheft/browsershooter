@@ -23,10 +23,22 @@ export declare const movementTuning: {
     readonly slideSpeedBoost: 1.1;
     /** Slightly stronger decay = shorter slide distance. */
     readonly slideDecay: 0.95;
+    /** Decay on ramps: same as flat so slide feels consistent (ramp = flache Fläche). */
+    readonly slideDecayOnRamp: 0.95;
+    /** When sliding on ramp: gravity projects onto slope. This factor scales how much we accelerate downhill / decelerate uphill (0 = flat, ~0.5 = noticeable, 1 = full). */
+    readonly rampSlideGravityFactor: 0.5;
+    /** Max horizontal speed when sliding on a ramp; same as flat slide behavior. */
+    readonly slideMaxSpeedOnRamp: 18;
     readonly slideMinSpeed: 2;
     readonly slideDurationMax: 1.8;
     /** Min horizontal speed to enter slide. */
     readonly slideEnterSpeed: 6;
+    /** When landing on a ramp, slide boost is scaled by this (reduces launch feeling). */
+    readonly slideBoostOnRampFactor: 0.85;
+    /** Max horizontal speed when grounded on a ramp; same as walk so ramp feels like flat surface. */
+    readonly maxSpeedOnRamp: 8;
+    /** When landing on ramp (grounded, not slide), hor velocity is clamped to this factor × maxSpeedWalk. */
+    readonly rampLandingSpeedFactor: 1.2;
     /** Min time sprinting before ground slide allowed (Apex-style warmup). */
     readonly slideEnterMinSprintTime: 0.15;
     /** Grace (s) after releasing Shift – can still enter slide while speed is high. */
@@ -48,7 +60,7 @@ export declare const movementTuning: {
     /** Horizontal dash: speed during dash phase (faster than slide). */
     readonly dashSpeed: 18;
     /** Duration (s) of dash impulse phase. */
-    readonly dashDuration: 0.2;
+    readonly dashDuration: 0.4;
     /** Cooldown (s) before next dash. */
     readonly dashCooldownSec: 10;
 };

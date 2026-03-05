@@ -37,6 +37,7 @@ import {
   setLoadingMessage,
   hideLoadingScreen,
 } from "./systems/ui/LoadingScreen.js";
+import { loadMapFromURL } from "./systems/mapLoader/MapLoader.js";
 import { createDebugOverlay, updateDebugOverlay } from "./debug/DebugOverlay.js";
 import { DebugHitboxVisualization } from "./debug/DebugVisualization.js";
 import { WEAPON_STUB } from "./systems/gameplay/WeaponStub.js";
@@ -103,10 +104,36 @@ const canvas = document.createElement("canvas");
 app.appendChild(canvas);
 
 const tunerParam = new URLSearchParams(window.location.search).get("tuner");
+const editorParam = new URLSearchParams(window.location.search).get("editor");
 if (tunerParam === "1") {
   void import("./tuner/TunerBoot.js").then((m) => m.bootTuner(app, canvas));
 } else if (tunerParam === "3p") {
   void import("./tuner/Tuner3PBoot.js").then((m) => m.bootTuner3P(app, canvas));
+} else if (editorParam === "1") {
+  void import("../../tools/editor/src/main.ts").then((m) =>
+    m.bootEditor(app, {
+      initViewmodel: async (camera) => {
+        const playerResult = await loadPlayerModelWithAnimations(clientConfig.playerModelUrl);
+        const wrapper = { getCamera: () => camera };
+        const result = await initViewmodel(
+          playerResult.scene,
+          playerResult.animations,
+          wrapper as import("./systems/camera/FPSCamera.js").FPSCamera
+        );
+        const editorAnimSystem = new PlayerAnimationSystem(clientConfig.animationClipNames);
+        editorAnimSystem.init(result.viewmodelAnimations);
+        const editorMixer = new THREE.AnimationMixer(result.viewmodelModel);
+        return {
+          viewmodelState: result.viewmodelState,
+          updateViewmodelFrame,
+          updateViewmodelAnimation(dt: number) {
+            editorAnimSystem.playStaticIdlePose(editorMixer);
+            editorMixer.update(dt);
+          },
+        };
+      },
+    })
+  );
 } else {
   // --- Game mode ---
   function getCanvasSize(): { w: number; h: number } {
@@ -588,7 +615,8 @@ if (tunerParam === "1") {
           netInfo,
           debugMode,
           getLastHitAngle(),
-          netClient.getPing()
+          netClient.getPing(),
+          debugMode ? movement.getGroundDebugInfo() : undefined
         );
       }
     });
@@ -600,6 +628,17 @@ if (tunerParam === "1") {
   });
 
   initAssets().then(async () => {
+    setLoadingMessage("Loading map…", 55);
+    let loadedMapStaticWorld: import("shared").StaticWorld | undefined;
+    try {
+      const loaded = await loadMapFromURL("/maps/arena_blockout.json");
+      sceneManager.setMapGroup(loaded.group);
+      loadedMapStaticWorld = loaded.staticWorld;
+      movement.setStaticWorld(loaded.staticWorld);
+    } catch (err) {
+      console.warn("Failed to load map JSON, using built-in arena.", err);
+    }
+
     setLoadingMessage("Connecting to server…", 60);
     netClient.connect(clientConfig.serverUrl);
     const joined = await netClient.joinOrCreate("arena_ffa");

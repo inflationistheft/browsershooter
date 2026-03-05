@@ -2,6 +2,7 @@
  * Shared movement step: grounded/sliding/airborne state machine.
  * Used by client (FPSMovementController) and server (ArenaFFA) for deterministic physics.
  */
+import type { StaticWorld } from "../world/StaticWorld.js";
 export interface MovementStepInput {
     moveX: number;
     moveZ: number;
@@ -57,6 +58,6 @@ export declare function tickMovementTimers(ext: MovementExtState, dt: number): v
  * Single tick of movement. Mutates state in place.
  * Call tickMovementTimers on ext before this each tick.
  */
-export declare function stepPlayerMovement(state: MovementStepState, input: MovementStepInput, dt: number, playerRadius: number): void;
+export declare function stepPlayerMovement(state: MovementStepState, input: MovementStepInput, dt: number, playerRadius: number, staticWorld?: StaticWorld): void;
 export { createDefaultExt };
 //# sourceMappingURL=stepPlayerMovement.d.ts.map

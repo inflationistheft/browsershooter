@@ -34,10 +34,29 @@ import {
   stepPlayerMovement,
   tickMovementTimers,
   resolvePlayerCollisions,
+  rayStaticWorldIntersection,
+  buildStaticWorldFromMap,
+  buildKillVolumesFromMap,
+  isPointInsideAabb,
+  type StaticWorld,
+  type StaticBlockCollider,
+  type MapData,
+  type MapSpawnPoint,
 } from "shared";
 import type { PlayerInput, KillEventPayload, WeaponId } from "shared";
 import { ArenaState, PlayerStateSchema } from "shared";
 import { serverConfig } from "../config/index.js";
+import { readFileSync } from "node:fs";
+import { resolve as resolvePath } from "node:path";
+import prefabDefsJson from "shared/src/data/prefabDefs.json" with { type: "json" };
+
+type PrefabDef = {
+  mesh: string;
+  collision: "box" | "trimesh" | "ramp" | "none";
+  size: [number, number, number];
+};
+
+const prefabDefs = prefabDefsJson as unknown as Record<string, PrefabDef | undefined>;
 import {
   type PlayerExtendedState,
   createPlayerExtendedState,
@@ -45,11 +64,55 @@ import {
 
 export class ArenaFFARoom extends Room<ArenaState> {
   private playerExt = new Map<string, PlayerExtendedState>();
+  private staticWorld: StaticWorld | undefined;
+  private spawnPoints: MapSpawnPoint[] = [];
+  private killVolumes: StaticBlockCollider[] = [];
   onCreate(): void {
+    this.loadMap();
     this.setState(new ArenaState());
     this.setSimulationInterval((dt) => this.tick(dt), serverConfig.tickMs);
     this.onMessage("input", (client, message) => this.onInput(client, message));
     this.onMessage("ping", (client, message) => client.send("pong", message));
+  }
+
+  private loadMap(): void {
+    try {
+      const mapPath = resolvePath(process.cwd(), serverConfig.arenaMapPath);
+      const raw = readFileSync(mapPath, "utf-8");
+      const data = JSON.parse(raw) as MapData;
+      this.staticWorld = buildStaticWorldFromMap(data, prefabDefs);
+      this.killVolumes = buildKillVolumesFromMap(data, prefabDefs);
+      this.spawnPoints = Array.isArray(data.spawnPoints) ? data.spawnPoints.slice() : [];
+      if (this.spawnPoints.length === 0) {
+        console.warn(
+          `[ArenaFFA] Map ${mapPath} has no spawnPoints; falling back to built-in offsets.`
+        );
+      } else {
+        console.log(
+          `[ArenaFFA] Loaded map ${mapPath} with ${this.spawnPoints.length} spawn points.`
+        );
+      }
+    } catch (err) {
+      console.warn(
+        "[ArenaFFA] Failed to load map JSON; using analytic arena & fallback spawns.",
+        err
+      );
+      this.staticWorld = undefined;
+      this.spawnPoints = [];
+      this.killVolumes = [];
+    }
+  }
+
+  private pickSpawn(): { x: number; y: number; z: number } {
+    if (this.spawnPoints.length > 0) {
+      const idx = Math.floor(Math.random() * this.spawnPoints.length);
+      const sp = this.spawnPoints[idx];
+      const [sx, sy, sz] = sp.position;
+      return { x: sx, y: sy, z: sz };
+    }
+    const idx = Math.floor(Math.random() * ArenaFFARoom.SPAWN_OFFSETS.length);
+    const [sx, sy, sz] = ArenaFFARoom.SPAWN_OFFSETS[idx];
+    return { x: sx, y: sy, z: sz };
   }
 
   /** Spawn offsets (x, y, z). Players spawn at random point on join/respawn. */
@@ -71,8 +134,7 @@ export class ArenaFFARoom extends Room<ArenaState> {
 
   onJoin(client: Client): void {
     this.playerExt.set(client.sessionId, createPlayerExtendedState());
-    const idx = Math.floor(Math.random() * ArenaFFARoom.SPAWN_OFFSETS.length);
-    const [sx, sy, sz] = ArenaFFARoom.SPAWN_OFFSETS[idx];
+    const { x: sx, y: sy, z: sz } = this.pickSpawn();
 
     const state = new PlayerStateSchema();
     state.id = client.sessionId;
@@ -128,8 +190,7 @@ export class ArenaFFARoom extends Room<ArenaState> {
         }
         ext.respawnTicks--;
         if (ext.respawnTicks <= 0) {
-          const idx = Math.floor(Math.random() * ArenaFFARoom.SPAWN_OFFSETS.length);
-          const [sx, sy, sz] = ArenaFFARoom.SPAWN_OFFSETS[idx];
+          const { x: sx, y: sy, z: sz } = this.pickSpawn();
           player.shield = player.maxShield;
           player.health = player.maxHealth;
           player.x = sx;
@@ -305,7 +366,7 @@ export class ArenaFFARoom extends Room<ArenaState> {
           movementState: player.movementState as "grounded" | "sliding" | "airborne",
           ext: movementExt,
         };
-        stepPlayerMovement(movementState, movementInput, dtSec, PLAYER_RADIUS);
+        stepPlayerMovement(movementState, movementInput, dtSec, PLAYER_RADIUS, this.staticWorld);
         player.x = movementState.x;
         player.y = movementState.y;
         player.z = movementState.z;
@@ -334,6 +395,23 @@ export class ArenaFFARoom extends Room<ArenaState> {
         }
       } else {
         player.animationState = "idle";
+      }
+
+      // Kill volume: if player is inside any, treat as death and start respawn
+      if (player.health > 0 && this.killVolumes.length > 0) {
+        for (const vol of this.killVolumes) {
+          if (isPointInsideAabb(player.x, player.y, player.z, vol)) {
+            player.health = 0;
+            ext.respawnTicks = RESPAWN_TICKS;
+            this.broadcastKillEvent({
+              killerId: "",
+              victimId: shooterId,
+              weaponId: "rifle",
+              isHeadshot: false,
+            });
+            break;
+          }
+        }
       }
 
       /** Only shoot when input has shoot and cooldown allows. No queuing: clicks during cooldown are ignored. */
@@ -591,6 +669,16 @@ export class ArenaFFARoom extends Room<ArenaState> {
       }
     }
 
+    const rayWorld = (
+      maxT: number
+    ): {
+      hit: boolean;
+      t?: number;
+    } =>
+      this.staticWorld
+        ? rayStaticWorldIntersection(ox, oy, oz, dx, dy, dz, maxT, this.staticWorld)
+        : rayArenaIntersection(ox, oy, oz, dx, dy, dz, maxT);
+
     let bestId: string | null = null;
     let bestT = Infinity;
     let bestType: "head" | "body" = "body";
@@ -622,12 +710,19 @@ export class ArenaFFARoom extends Room<ArenaState> {
       const headCz = useBoneHitboxes && targetExt ? targetExt.headZ! : p.z;
 
       const tHead = raySphereIntersection(
-        ox, oy, oz, dx, dy, dz,
-        headCx, headCy, headCz,
+        ox,
+        oy,
+        oz,
+        dx,
+        dy,
+        dz,
+        headCx,
+        headCy,
+        headCz,
         HEAD_HITBOX_RADIUS + BULLET_RADIUS
       );
       if (tHead !== null && tHead > 0 && tHead <= HITSCAN_RANGE && tHead < bestT) {
-        const los = rayArenaIntersection(ox, oy, oz, dx, dy, dz, tHead);
+        const los = rayWorld(tHead);
         if (!los.hit || (los.t !== undefined && los.t > tHead)) {
           bestT = tHead;
           bestId = targetId;
@@ -645,16 +740,30 @@ export class ArenaFFARoom extends Room<ArenaState> {
         const bcz = (targetExt.bodyCenterZ! + targetExt.pelvisZ!) / 2;
         const bodyTopY = targetExt.spineTopY! + BODY_CAPSULE_TOP_EXTEND;
         tBody = rayCapsuleIntersection(
-          ox, oy, oz, dx, dy, dz,
-          bcx, 0, bcz,
+          ox,
+          oy,
+          oz,
+          dx,
+          dy,
+          dz,
+          bcx,
+          0,
+          bcz,
           targetExt.feetY!,
           bodyTopY,
           BODY_CAPSULE_RADIUS + BULLET_RADIUS
         );
       } else {
         tBody = rayCapsuleIntersection(
-          ox, oy, oz, dx, dy, dz,
-          p.x, p.y, p.z,
+          ox,
+          oy,
+          oz,
+          dx,
+          dy,
+          dz,
+          p.x,
+          p.y,
+          p.z,
           0,
           BODY_CAPSULE_TOP,
           BODY_CAPSULE_RADIUS + BULLET_RADIUS
@@ -662,7 +771,7 @@ export class ArenaFFARoom extends Room<ArenaState> {
       }
 
       if (tBody !== null && tBody > 0 && tBody <= HITSCAN_RANGE && tBody < bestT) {
-        const los = rayArenaIntersection(ox, oy, oz, dx, dy, dz, tBody);
+        const los = rayWorld(tBody);
         if (!los.hit || (los.t !== undefined && los.t > tBody)) {
           bestT = tBody;
           bestId = targetId;
@@ -681,11 +790,11 @@ export class ArenaFFARoom extends Room<ArenaState> {
       shotHitY = oy + dy * bestT;
       shotHitZ = oz + dz * bestT;
     } else {
-      const arenaHit = rayArenaIntersection(ox, oy, oz, dx, dy, dz, HITSCAN_RANGE);
-      if (arenaHit.hit && arenaHit.t !== undefined) {
-        shotHitX = ox + dx * arenaHit.t;
-        shotHitY = oy + dy * arenaHit.t;
-        shotHitZ = oz + dz * arenaHit.t;
+      const worldHit = rayWorld(HITSCAN_RANGE);
+      if (worldHit.hit && worldHit.t !== undefined) {
+        shotHitX = ox + dx * worldHit.t;
+        shotHitY = oy + dy * worldHit.t;
+        shotHitZ = oz + dz * worldHit.t;
       }
     }
 

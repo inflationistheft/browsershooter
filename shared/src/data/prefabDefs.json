@@ -1,17 +1,68 @@
 {
-  "floor_1x1": {
+  "floor_2x2": {
+    "mesh": "placeholder",
+    "collision": "box",
+    "size": [2, 0.2, 2]
+  },
+  "floor_4x4": {
+    "mesh": "placeholder",
+    "collision": "box",
+    "size": [4, 0.2, 4]
+  },
+  "wall_2x4": {
+    "mesh": "placeholder",
+    "collision": "box",
+    "size": [2, 6, 0.2],
+    "walkableTopOnly": true
+  },
+  "wall_4x4": {
+    "mesh": "placeholder",
+    "collision": "box",
+    "size": [4, 6, 0.2],
+    "walkableTopOnly": true
+  },
+  "ramp_1x4": {
+    "mesh": "placeholder",
+    "collision": "ramp",
+    "size": [4, 1.2, 2],
+    "walkableTopOnly": true
+  },
+  "solid_block": {
+    "mesh": "placeholder",
+    "collision": "box",
+    "size": [2, 2, 2],
+    "walkableTopOnly": true
+  },
+  "ledge_half_cover": {
+    "mesh": "placeholder",
+    "collision": "box",
+    "size": [1, 1, 0.5],
+    "walkableTopOnly": true
+  },
+  "ledge_full_cover": {
+    "mesh": "placeholder",
+    "collision": "box",
+    "size": [1, 1.2, 0.3],
+    "walkableTopOnly": true
+  },
+  "drop_floor": {
     "mesh": "placeholder",
     "collision": "box",
     "size": [1, 0.2, 1]
   },
-  "wall_1x2": {
+  "ceiling": {
     "mesh": "placeholder",
     "collision": "box",
-    "size": [1, 2, 0.2]
+    "size": [4, 0.2, 4]
   },
-  "ramp_1x1": {
+  "spawn_point": {
     "mesh": "placeholder",
-    "collision": "box",
-    "size": [1, 0.5, 1]
+    "collision": "none",
+    "size": [0.5, 0.5, 0.5]
+  },
+  "kill_volume": {
+    "mesh": "placeholder",
+    "collision": "none",
+    "size": [2, 2, 2]
   }
 }

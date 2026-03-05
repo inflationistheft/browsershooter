@@ -21,6 +21,12 @@ export function createDebugOverlay(container: HTMLElement): void {
   container.appendChild(el);
 }
 
+export interface GroundDebugInfo {
+  groundY: number;
+  playerY: number;
+  onRamp: boolean;
+}
+
 export function updateDebugOverlay(
   velocity: { x: number; y: number; z: number },
   state: string,
@@ -31,7 +37,8 @@ export function updateDebugOverlay(
   },
   debugMode?: boolean,
   hitAngle?: number | null,
-  pingMs?: number | null
+  pingMs?: number | null,
+  groundInfo?: GroundDebugInfo | null
 ): void {
   frameCount++;
   const now = performance.now();
@@ -60,6 +67,11 @@ export function updateDebugOverlay(
         : "";
     const pingStr =
       pingMs !== undefined && pingMs !== null ? ` | Ping: ${pingMs}ms` : "";
-    el.textContent = `FPS: ${fps} | Vel: ${velocity.x.toFixed(1)}, ${velocity.y.toFixed(1)}, ${velocity.z.toFixed(1)} | State: ${state}${sprintStr}${netStr}${pingStr}${debugStr}${hitStr}`;
+    let groundStr = "";
+    if (groundInfo !== undefined && groundInfo !== null) {
+      const delta = groundInfo.playerY - groundInfo.groundY;
+      groundStr = ` | Y: ${groundInfo.playerY.toFixed(3)} gY: ${groundInfo.groundY.toFixed(3)} Δ${delta.toFixed(3)}${groundInfo.onRamp ? " ramp" : ""}`;
+    }
+    el.textContent = `FPS: ${fps} | Vel: ${velocity.x.toFixed(1)}, ${velocity.y.toFixed(1)}, ${velocity.z.toFixed(1)} | State: ${state}${groundStr}${sprintStr}${netStr}${pingStr}${debugStr}${hitStr}`;
   }
 }

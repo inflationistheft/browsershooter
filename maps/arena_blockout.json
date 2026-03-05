@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "name": "arena_blockout",
+  "gridSize": 1,
+  "prefabs": [
+    { "id": "floor_2x2", "position": [0, 0.1, 0], "rotation": 0 },
+    { "id": "floor_2x2", "position": [2, 0.1, 0], "rotation": 0 },
+    { "id": "floor_2x2", "position": [-2, 0.1, 0], "rotation": 0 },
+    { "id": "floor_2x2", "position": [0, 0.1, 2], "rotation": 0 },
+    { "id": "floor_2x2", "position": [0, 0.1, -2], "rotation": 0 },
+
+    { "id": "wall_4x4", "position": [0, 3, 5], "rotation": 0 },
+    { "id": "wall_4x4", "position": [0, 3, -5], "rotation": 0 },
+    { "id": "wall_4x4", "position": [5, 3, 0], "rotation": 90 },
+    { "id": "wall_4x4", "position": [-5, 3, 0], "rotation": 90 },
+
+    { "id": "ramp_1x4", "position": [2, 0.6, -1], "rotation": 0 }
+  ],
+  "spawnPoints": [
+    { "team": 0, "position": [0, 0.2, 0], "rotation": 0 },
+    { "team": 0, "position": [2, 0.2, 2], "rotation": 180 },
+    { "team": 0, "position": [-2, 0.2, -2], "rotation": 45 }
+  ]
+}
+
