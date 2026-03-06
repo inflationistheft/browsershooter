@@ -12,6 +12,38 @@ export interface KillEventPayload {
     weaponId: WeaponId;
     isHeadshot: boolean;
 }
+/** Server->client payload when the local client successfully hits a target. */
+export interface HitMessagePayload {
+    targetId: string;
+    damage: number;
+    hitboxType?: "head" | "body";
+    hitX?: number;
+    hitY?: number;
+    hitZ?: number;
+}
+/** Server->client payload when the local client is hit by someone else. */
+export interface HitReceivedPayload {
+    dirX: number;
+    dirY: number;
+    dirZ: number;
+    damage?: number;
+    hitX?: number;
+    hitY?: number;
+    hitZ?: number;
+}
+/** Server->client payload describing a fired shot (hitscan trace). */
+export interface ShotMessagePayload {
+    shooterId: string;
+    ox: number;
+    oy: number;
+    oz: number;
+    dx: number;
+    dy: number;
+    dz: number;
+    hitX?: number;
+    hitY?: number;
+    hitZ?: number;
+}
 export type ClientMessage = {
     type: "input";
     payload: PlayerInput;
@@ -29,20 +61,15 @@ export type ServerMessage = {
     };
 } | {
     type: "hit";
-    payload: {
-        targetId: string;
-        damage: number;
-    };
+    payload: HitMessagePayload;
 } | {
     type: "hitReceived";
-    payload: {
-        dirX: number;
-        dirY: number;
-        dirZ: number;
-        damage?: number;
-    };
+    payload: HitReceivedPayload;
 } | {
     type: "kill";
     payload: KillEventPayload;
+} | {
+    type: "shot";
+    payload: ShotMessagePayload;
 };
 //# sourceMappingURL=messages.d.ts.map

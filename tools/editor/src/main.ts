@@ -89,6 +89,8 @@ function saveEditorSettings(): void {
 }
 
 let placementHeightLevel = 0;
+let currentPrefab: PrefabId = "floor_4x4";
+let currentRotationDeg = 0;
 
 interface EditorPrefabInstance {
   id: PrefabId;
@@ -200,8 +202,8 @@ function importMapData(data: MapData): void {
   prefabInstances.splice(0, prefabInstances.length);
   for (const p of data.prefabs) {
     if (!validPrefabIds.has(p.id)) continue;
-    const pos = Array.isArray(p.position) && p.position.length >= 3
-      ? [Number(p.position[0]), Number(p.position[1]), Number(p.position[2])] as [number, number, number]
+    const pos: [number, number, number] = Array.isArray(p.position) && p.position.length >= 3
+      ? [Number(p.position[0]), Number(p.position[1]), Number(p.position[2])]
       : [0, 0, 0];
     const rotation = Number(p.rotation) || 0;
     prefabInstances.push({
@@ -218,8 +220,8 @@ function importMapData(data: MapData): void {
   }
   spawnPointsInternal.splice(0, spawnPointsInternal.length);
   for (const s of data.spawnPoints) {
-    const pos = Array.isArray(s.position) && s.position.length >= 3
-      ? [Number(s.position[0]), Number(s.position[1]), Number(s.position[2])] as [number, number, number]
+    const pos: [number, number, number] = Array.isArray(s.position) && s.position.length >= 3
+      ? [Number(s.position[0]), Number(s.position[1]), Number(s.position[2])]
       : [0, 0, 0];
     const spawnMesh = createSpawnMesh(true, Number(s.rotation) || 0);
     const editorSp: EditorSpawnPoint = {
@@ -431,8 +433,6 @@ const PREFAB_DISPLAY_NAMES: Partial<Record<PrefabId, string>> = {
   spawn_point: "Spawn-Punkt",
   kill_volume: "Kill-Volume",
 };
-let currentPrefab: PrefabId = "floor_4x4";
-let currentRotationDeg = 0;
 let currentSpawnRotationDeg = 0;
 
 (function applySavedEditorSettings() {
@@ -907,6 +907,11 @@ const _groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const _raycaster = new THREE.Raycaster();
 const _mouseNDC = new THREE.Vector2();
 const _intersectTarget = new THREE.Vector3();
+const _raycasterCenter = new THREE.Raycaster();
+const _ndcCenter = new THREE.Vector2(0, 0);
+const _groundPlaneDynamic = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const _targetVec = new THREE.Vector3();
+const _mouseTmp = new THREE.Vector2();
 
 function getSnappedPlacePosition(ndcX: number, ndcY: number, prefabId: PrefabId): { x: number; z: number; centerY: number } | null {
   _mouseNDC.set(ndcX, ndcY);
@@ -1195,29 +1200,6 @@ function revalidateAllSpawnPoints(): void {
 const WALKABLE_DEBUG_COLOR = 0x00ff88;
 const WALL_DEBUG_COLOR = 0xff8800;
 
-function createBoxWireframe(
-  minX: number,
-  maxX: number,
-  minY: number,
-  maxY: number,
-  minZ: number,
-  maxZ: number,
-  color: number
-): THREE.LineSegments {
-  const points = [
-    [minX, minY, minZ], [maxX, minY, minZ], [maxX, minY, minZ], [maxX, minY, maxZ],
-    [maxX, minY, maxZ], [minX, minY, maxZ], [minX, minY, maxZ], [minX, minY, minZ],
-    [minX, minY, minZ], [minX, maxY, minZ], [maxX, minY, minZ], [maxX, maxY, minZ],
-    [maxX, minY, maxZ], [maxX, maxY, maxZ], [minX, minY, maxZ], [minX, maxY, maxZ],
-    [minX, maxY, minZ], [maxX, maxY, minZ], [maxX, maxY, minZ], [maxX, maxY, maxZ],
-    [maxX, maxY, maxZ], [minX, maxY, maxZ], [minX, maxY, maxZ], [minX, maxY, minZ],
-  ];
-  const vertices = points.flatMap((p) => p);
-  const geo = new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
-  const mat = new THREE.LineBasicMaterial({ color });
-  return new THREE.LineSegments(geo, mat);
-}
-
 /** Top face (walkable) of AABB as 4 edges at maxY. */
 function createTopFaceWireframe(
   minX: number,
@@ -1479,16 +1461,15 @@ function rebuildEditorStaticWorld(): void {
 
 function placePrefabFromCameraCrosshair(): void {
   pushUndoSnapshot();
-  const raycaster = new THREE.Raycaster();
-  const ndcCenter = new THREE.Vector2(0, 0);
-  raycaster.setFromCamera(ndcCenter, camera);
+  _ndcCenter.set(0, 0);
+  _raycasterCenter.setFromCamera(_ndcCenter, camera);
   const baseY = placementHeightLevel * PLACEMENT_LEVEL_STEP;
-  const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -baseY);
-  const target = new THREE.Vector3();
-  const hit = raycaster.ray.intersectPlane(plane, target);
+  _groundPlaneDynamic.normal.set(0, 1, 0);
+  _groundPlaneDynamic.constant = -baseY;
+  const hit = _raycasterCenter.ray.intersectPlane(_groundPlaneDynamic, _targetVec);
   if (!hit) return;
-  const x = Math.round(target.x / GRID_SIZE) * GRID_SIZE;
-  const z = Math.round(target.z / GRID_SIZE) * GRID_SIZE;
+  const x = Math.round(_targetVec.x / GRID_SIZE) * GRID_SIZE;
+  const z = Math.round(_targetVec.z / GRID_SIZE) * GRID_SIZE;
   addPrefabAt(currentPrefab, x, z, currentRotationDeg);
   rebuildEditorStaticWorld();
   rebuildCollisionDebugMeshes();
@@ -1508,15 +1489,14 @@ function placePrefabFromPointer(ev: MouseEvent): void {
 
 function placeSpawnFromCameraCrosshair(): void {
   pushUndoSnapshot();
-  const raycaster = new THREE.Raycaster();
-  const ndcCenter = new THREE.Vector2(0, 0);
-  raycaster.setFromCamera(ndcCenter, camera);
-  const ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-  const target = new THREE.Vector3();
-  const hit = raycaster.ray.intersectPlane(ground, target);
+  _ndcCenter.set(0, 0);
+  _raycasterCenter.setFromCamera(_ndcCenter, camera);
+  _groundPlaneDynamic.normal.set(0, 1, 0);
+  _groundPlaneDynamic.constant = 0;
+  const hit = _raycasterCenter.ray.intersectPlane(_groundPlaneDynamic, _targetVec);
   if (!hit) return;
-  const snappedX = Math.round(target.x / GRID_SIZE) * GRID_SIZE;
-  const snappedZ = Math.round(target.z / GRID_SIZE) * GRID_SIZE;
+  const snappedX = Math.round(_targetVec.x / GRID_SIZE) * GRID_SIZE;
+  const snappedZ = Math.round(_targetVec.z / GRID_SIZE) * GRID_SIZE;
   const spawnPos: [number, number, number] = [snappedX, 0, snappedZ];
   const spawnMesh = createSpawnMesh(true, currentSpawnRotationDeg);
   const sp: EditorSpawnPoint = {
@@ -1537,15 +1517,14 @@ function placeSpawnFromPointer(ev: MouseEvent): void {
   const rect = canvas.getBoundingClientRect();
   const x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
   const y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
-  const raycaster = new THREE.Raycaster();
-  const mouse = new THREE.Vector2(x, y);
-  raycaster.setFromCamera(mouse, camera);
-  const ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-  const target = new THREE.Vector3();
-  const hit = raycaster.ray.intersectPlane(ground, target);
+  _mouseTmp.set(x, y);
+  _raycasterCenter.setFromCamera(_mouseTmp, camera);
+  _groundPlaneDynamic.normal.set(0, 1, 0);
+  _groundPlaneDynamic.constant = 0;
+  const hit = _raycasterCenter.ray.intersectPlane(_groundPlaneDynamic, _targetVec);
   if (!hit) return;
-  const snappedX = Math.round(target.x / GRID_SIZE) * GRID_SIZE;
-  const snappedZ = Math.round(target.z / GRID_SIZE) * GRID_SIZE;
+  const snappedX = Math.round(_targetVec.x / GRID_SIZE) * GRID_SIZE;
+  const snappedZ = Math.round(_targetVec.z / GRID_SIZE) * GRID_SIZE;
   const spawnPos: [number, number, number] = [snappedX, 0, snappedZ];
   const spawnMesh = createSpawnMesh(true, currentSpawnRotationDeg);
   const sp: EditorSpawnPoint = {
@@ -1567,10 +1546,9 @@ function deletePrefabFromPointer(ev: MouseEvent): void {
   const rect = canvas.getBoundingClientRect();
   const x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
   const y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
-  const raycaster = new THREE.Raycaster();
-  const mouse = new THREE.Vector2(x, y);
-  raycaster.setFromCamera(mouse, camera);
-  const hits = raycaster.intersectObjects(prefabGroup.children, false);
+  _mouseTmp.set(x, y);
+  _raycasterCenter.setFromCamera(_mouseTmp, camera);
+  const hits = _raycasterCenter.intersectObjects(prefabGroup.children, false);
   if (hits.length === 0) return;
   const hit = hits[0];
   const hitPoint = hit.point;
@@ -1591,11 +1569,10 @@ function deleteSpawnFromPointer(ev: MouseEvent): void {
   const rect = canvas.getBoundingClientRect();
   const x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
   const y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
-  const raycaster = new THREE.Raycaster();
-  const mouse = new THREE.Vector2(x, y);
-  raycaster.setFromCamera(mouse, camera);
+  _mouseTmp.set(x, y);
+  _raycasterCenter.setFromCamera(_mouseTmp, camera);
   const meshes = spawnPointsInternal.map((s) => s.mesh);
-  const hits = raycaster.intersectObjects(meshes, false);
+  const hits = _raycasterCenter.intersectObjects(meshes, false);
   if (hits.length === 0) return;
   const first = hits[0].object as THREE.Mesh;
   const index = spawnPointsInternal.findIndex((s) => s.mesh === first);
@@ -1611,11 +1588,10 @@ function deleteSpawnFromPointer(ev: MouseEvent): void {
 function deleteSpawnFromCameraCrosshair(): void {
   if (spawnPointsInternal.length === 0) return;
   pushUndoSnapshot();
-  const raycaster = new THREE.Raycaster();
-  const ndcCenter = new THREE.Vector2(0, 0);
-  raycaster.setFromCamera(ndcCenter, camera);
+  _ndcCenter.set(0, 0);
+  _raycasterCenter.setFromCamera(_ndcCenter, camera);
   const meshes = spawnPointsInternal.map((s) => s.mesh);
-  const hits = raycaster.intersectObjects(meshes, false);
+  const hits = _raycasterCenter.intersectObjects(meshes, false);
   if (hits.length === 0) return;
   const first = hits[0].object as THREE.Mesh;
   const index = spawnPointsInternal.findIndex((s) => s.mesh === first);
@@ -1669,10 +1645,9 @@ canvas.addEventListener("mousedown", (e) => {
     } else if (e.button === 2) {
       if (currentTool === "prefab") {
         pushUndoSnapshot();
-        const raycaster = new THREE.Raycaster();
-        const ndcCenter = new THREE.Vector2(0, 0);
-        raycaster.setFromCamera(ndcCenter, camera);
-        const hits = raycaster.intersectObjects(prefabGroup.children, false);
+        _ndcCenter.set(0, 0);
+        _raycasterCenter.setFromCamera(_ndcCenter, camera);
+        const hits = _raycasterCenter.intersectObjects(prefabGroup.children, false);
         if (hits.length === 0) return;
         const hit = hits[0];
         const hitPoint = hit.point;
@@ -1711,10 +1686,6 @@ canvas.addEventListener("mousedown", (e) => {
 window.addEventListener("mouseup", (e) => {
   if (e.button === 2) isOrbiting = false;
 });
-
-// Debug log counters (updatePlayer / viewmodel)
-let _playerLogCount = 0;
-let _viewmodelLogCount = 0;
 
 // ---- FPS look: 1:1 copy from client InputSampler (click -> pointer lock, mousemove -> yaw/pitch) ----
 const INPUT_STORAGE_KEY = "browsershooter:inputSettings";
@@ -1867,14 +1838,8 @@ function enterPlayerMode(): void {
   updateInfo();
 
   const initViewmodel = bootOptions?.initViewmodel;
-  // #region agent log
-  fetch('http://127.0.0.1:7291/ingest/e6ca52ac-ce07-4922-9b3f-cd33fd3e1212',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'023e93'},body:JSON.stringify({sessionId:'023e93',location:'editor main.ts:enterPlayerMode',message:'enterPlayerMode',data:{hasInitViewmodel:!!initViewmodel},hypothesisId:'H4',timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
   if (initViewmodel) {
     initViewmodel(camera).then((api) => {
-      // #region agent log
-      fetch('http://127.0.0.1:7291/ingest/e6ca52ac-ce07-4922-9b3f-cd33fd3e1212',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'023e93'},body:JSON.stringify({sessionId:'023e93',location:'editor main.ts:viewmodel then',message:'viewmodel init resolved',data:{hasApi:!!api,stillPlayerMode:isPlayerMode},hypothesisId:'H5',timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       if (!isPlayerMode) return;
       editorViewModelApi = api;
       if (weaponPlaceholder) {
@@ -1887,9 +1852,6 @@ function enterPlayerMode(): void {
         state.viewmodelRoot.updateMatrixWorld(true);
       }
     }).catch((err) => {
-      // #region agent log
-      fetch('http://127.0.0.1:7291/ingest/e6ca52ac-ce07-4922-9b3f-cd33fd3e1212',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'023e93'},body:JSON.stringify({sessionId:'023e93',location:'editor main.ts:viewmodel catch',message:'viewmodel init failed',data:{err:String(err)},hypothesisId:'H5',timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       if (import.meta.env?.DEV) console.warn("[Editor] Viewmodel load failed:", err);
     });
   }
@@ -2024,12 +1986,6 @@ function updatePlayer(dt: number): void {
   camera.rotation.z = 0;
   camera.updateMatrixWorld();
 
-  if (++_playerLogCount <= 5) {
-    // #region agent log
-    fetch('http://127.0.0.1:7291/ingest/e6ca52ac-ce07-4922-9b3f-cd33fd3e1212',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'023e93'},body:JSON.stringify({sessionId:'023e93',location:'editor main.ts:updatePlayer',message:'updatePlayer camera step',data:{eyeX,eyeY,eyeZ,yaw:playerYaw,pitch:playerPitch,movementState:playerState.movementState},hypothesisId:'H6',timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
-  }
-
   // Update player HUD: ohne Pointer Lock Hinweis, sonst Slide/Dash
   if (document.pointerLockElement !== canvas) {
     playerHud.textContent = "Klicken zum Aktivieren der Maus";
@@ -2045,12 +2001,6 @@ function updatePlayer(dt: number): void {
   if (editorViewModelApi && playerState) {
     editorViewModelApi.updateViewmodelAnimation?.(dt);
     // Editor: do not call updateViewmodelFrame – no procedural sway/bob so camera is 1:1 with mouse (no sine feel).
-    if (++_viewmodelLogCount <= 5) {
-      // #region agent log
-      const _isDashing = (playerState.ext.dashActiveTimer ?? 0) > 0;
-      fetch('http://127.0.0.1:7291/ingest/e6ca52ac-ce07-4922-9b3f-cd33fd3e1212',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'023e93'},body:JSON.stringify({sessionId:'023e93',location:'editor main.ts:updatePlayer',message:'updatePlayer viewmodel step',data:{hasApi:!!editorViewModelApi,isDashing:_isDashing,velocity:{x:playerState.vx,y:playerState.vy,z:playerState.vz}},hypothesisId:'H7',timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
-    }
   }
 }
 
@@ -2196,16 +2146,15 @@ function animate(time: number): void {
         }
       } else if (document.pointerLockElement === canvas) {
         // Player-Editor-Modus: Ghost an Fadenkreuz auf aktueller Bauhöhe
-        const raycaster = new THREE.Raycaster();
-        const ndcCenter = new THREE.Vector2(0, 0);
-        raycaster.setFromCamera(ndcCenter, camera);
+        _ndcCenter.set(0, 0);
+        _raycasterCenter.setFromCamera(_ndcCenter, camera);
         const baseY = placementHeightLevel * PLACEMENT_LEVEL_STEP;
-        const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -baseY);
-        const target = new THREE.Vector3();
-        const hit = raycaster.ray.intersectPlane(plane, target);
+        _groundPlaneDynamic.normal.set(0, 1, 0);
+        _groundPlaneDynamic.constant = -baseY;
+        const hit = _raycasterCenter.ray.intersectPlane(_groundPlaneDynamic, _targetVec);
         if (hit) {
-          const x = Math.round(target.x / GRID_SIZE) * GRID_SIZE;
-          const z = Math.round(target.z / GRID_SIZE) * GRID_SIZE;
+          const x = Math.round(_targetVec.x / GRID_SIZE) * GRID_SIZE;
+          const z = Math.round(_targetVec.z / GRID_SIZE) * GRID_SIZE;
           if (ghostPreviewPrefabId !== currentPrefab || !ghostPreviewMesh) {
             if (ghostPreviewMesh) {
               ghostPreviewGroup.remove(ghostPreviewMesh);
@@ -2232,27 +2181,30 @@ function animate(time: number): void {
 
     // Spawn preview (shows exact position + direction)
     if (currentTool === "spawn") {
-      const raycaster = new THREE.Raycaster();
-      const target = new THREE.Vector3();
+      const raycaster = _raycasterCenter;
+      const target = _targetVec;
       let snappedX: number | null = null;
       let snappedZ: number | null = null;
 
       if (!isPlayerMode) {
         const rect = canvas.getBoundingClientRect();
         if (rect.width > 0 && rect.height > 0) {
-          const ndc = new THREE.Vector2(lastMouseNDC.x, lastMouseNDC.y);
-          raycaster.setFromCamera(ndc, camera);
-          const ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-          const hit = raycaster.ray.intersectPlane(ground, target);
+          _mouseTmp.set(lastMouseNDC.x, lastMouseNDC.y);
+          raycaster.setFromCamera(_mouseTmp, camera);
+          _groundPlaneDynamic.normal.set(0, 1, 0);
+          _groundPlaneDynamic.constant = 0;
+          const hit = raycaster.ray.intersectPlane(_groundPlaneDynamic, target);
           if (hit) {
             snappedX = Math.round(target.x / GRID_SIZE) * GRID_SIZE;
             snappedZ = Math.round(target.z / GRID_SIZE) * GRID_SIZE;
           }
         }
       } else if (document.pointerLockElement === canvas) {
-        raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
-        const ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-        const hit = raycaster.ray.intersectPlane(ground, target);
+        _ndcCenter.set(0, 0);
+        raycaster.setFromCamera(_ndcCenter, camera);
+        _groundPlaneDynamic.normal.set(0, 1, 0);
+        _groundPlaneDynamic.constant = 0;
+        const hit = raycaster.ray.intersectPlane(_groundPlaneDynamic, target);
         if (hit) {
           snappedX = Math.round(target.x / GRID_SIZE) * GRID_SIZE;
           snappedZ = Math.round(target.z / GRID_SIZE) * GRID_SIZE;

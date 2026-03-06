@@ -365,34 +365,6 @@ export function stepPlayerMovement(
       const horSpeedApproach = Math.hypot(approachVx, approachVz);
       const dot = approachVx * nx + approachVz * nz;
 
-      // #region agent log
-      fetch("http://127.0.0.1:7291/ingest/e6ca52ac-ce07-4922-9b3f-cd33fd3e1212", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Debug-Session-Id": "e78fd8",
-        },
-        body: JSON.stringify({
-          sessionId: "e78fd8",
-          runId: "post-fix",
-          hypothesisId: "wallbounce-conditions",
-          location: "shared/src/movement/stepPlayerMovement.ts:airborne",
-          message: "airborne wall contact",
-          data: {
-            jumpPressedThisFrame,
-            jumpHeld: input.jumpHeld,
-            horSpeedApproach,
-            minSpeed: t.wallBounceSpeedMin,
-            dot,
-            nx,
-            nz,
-            movementState: state.movementState,
-          },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion agent log
-
       if (jumpPressedThisFrame && horSpeedApproach >= t.wallBounceSpeedMin && dot > 0) {
         let rx = approachVx - 2 * dot * nx;
         let rz = approachVz - 2 * dot * nz;

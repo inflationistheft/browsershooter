@@ -33,7 +33,7 @@ export interface RemotePlayerSyncDeps {
 export class RemotePlayerSync {
   private sceneManager: SceneManager;
   private movement: FPSMovementController;
-  private playerAnimationSystem: PlayerAnimationSystem;
+  private playerAnimationSystem: PlayerAnimationSystem | null = null;
   playerTemplate: THREE.Object3D | null = null;
   weaponTemplate3P: THREE.Object3D | null = null;
   private remotePlayerMeshes = new Map<string, THREE.Object3D>();
@@ -63,7 +63,7 @@ export class RemotePlayerSync {
   constructor(deps: RemotePlayerSyncDeps) {
     this.sceneManager = deps.sceneManager;
     this.movement = deps.movement;
-    this.playerAnimationSystem = deps.playerAnimationSystem!;
+    this.playerAnimationSystem = deps.playerAnimationSystem ?? null;
     this.tracerSystem = deps.tracerSystem;
     this.impactSystem = deps.impactSystem;
   }
@@ -175,7 +175,9 @@ export class RemotePlayerSync {
     scene.add(clone);
     this.remotePlayerMeshes.set(key, clone);
     const mixer = new THREE.AnimationMixer(clone);
-    this.playerAnimationSystem.playClip(mixer, player.animationState || "idle");
+    if (this.playerAnimationSystem) {
+      this.playerAnimationSystem.playClip(mixer, player.animationState || "idle");
+    }
     this.remotePlayerMixers.set(key, mixer);
 
     if (this.weaponTemplate3P) {
@@ -369,7 +371,7 @@ export class RemotePlayerSync {
           }
 
           const mixer = this.remotePlayerMixers.get(key);
-          if (mixer) {
+          if (mixer && this.playerAnimationSystem) {
             const clipId = player.animationState || "idle";
             const ctx: { vy?: number; sprint?: boolean; timeScale?: number } = {};
             if (clipId === "jump") ctx.vy = player.vy;
@@ -391,6 +393,13 @@ export class RemotePlayerSync {
               this._offsetVec3p
                 .set(cfg.x, cfg.y, cfg.z)
                 .applyQuaternion(this._handQuat3p);
+              weaponRef.container.position.copy(this._handPos3p).add(this._offsetVec3p);
+              weaponRef.container.quaternion.copy(this._handQuat3p);
+            } else {
+              // Fallback when RightHand bone missing: place weapon near player root so it doesn't sit at origin
+              mesh.getWorldPosition(this._handPos3p);
+              mesh.getWorldQuaternion(this._handQuat3p);
+              this._offsetVec3p.set(0.3, 0.5, 0).applyQuaternion(this._handQuat3p);
               weaponRef.container.position.copy(this._handPos3p).add(this._offsetVec3p);
               weaponRef.container.quaternion.copy(this._handQuat3p);
             }

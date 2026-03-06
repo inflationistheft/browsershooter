@@ -3,7 +3,7 @@
  */
 
 import { Client, Room } from "colyseus.js";
-import { ArenaState } from "shared";
+import { ArenaState, type PlayerInput } from "shared";
 
 const PING_INTERVAL_MS = 1500;
 
@@ -56,8 +56,8 @@ export class ColyseusClient {
     return this.lastPingMs;
   }
 
-  sendInput(_input: unknown): void {
-    this.room?.send("input", _input);
+  sendInput(input: PlayerInput): void {
+    this.room?.send("input", input);
   }
 
   getRoom(): Room<ArenaState> | null {

@@ -3,6 +3,19 @@ import { formatDisplayName } from "../../utils/displayName.js";
 
 let deathTime: number | null = null;
 
+// Cached DOM refs (set in createHUD, read in updateHUD)
+let valueElCached: HTMLElement | null = null;
+let barElCached: HTMLElement | null = null;
+let nameElCached: HTMLElement | null = null;
+let infoElCached: HTMLElement | null = null;
+let dashCircleCached: HTMLElement | null = null;
+let dashIconCached: HTMLElement | null = null;
+let dashLinesLeftCached: HTMLElement | null = null;
+let dashLinesRightCached: HTMLElement | null = null;
+let dashStreaksCached: HTMLElement | null = null;
+let respawnOverlayCached: HTMLElement | null = null;
+let respawnCountdownCached: HTMLElement | null = null;
+
 /** Drei Ebenen: Blau = Schild, Rot = Leben dahinter, Schwarz = kein Leben mehr. */
 const SHIELD_COLOR = "#4dd0e1";
 const HEALTH_COLOR = "#c62828";
@@ -250,6 +263,19 @@ export function createHUD(container: HTMLElement): void {
   `;
   respawnOverlay.innerHTML = '<div>Respawn</div><div id="respawn-countdown">3.0</div>';
   container.appendChild(respawnOverlay);
+
+  // Cache frequently accessed elements for updateHUD
+  valueElCached = numberEl;
+  barElCached = barWrap;
+  nameElCached = nameEl;
+  infoElCached = ammoEl;
+  dashCircleCached = dashCircle;
+  dashIconCached = dashIcon;
+  dashLinesLeftCached = speedLinesLeft;
+  dashLinesRightCached = speedLinesRight;
+  dashStreaksCached = dashStreaks;
+  respawnOverlayCached = respawnOverlay;
+  respawnCountdownCached = respawnOverlay.querySelector<HTMLElement>("#respawn-countdown");
 }
 
 export function updateHUD(
@@ -272,14 +298,14 @@ export function updateHUD(
   const filledSegments = Math.round(fillRatio * SEGMENTS);
   const barColor = isShieldState ? SHIELD_COLOR : HEALTH_COLOR;
 
-  const valueEl = document.getElementById("hud-player-value");
+  const valueEl = valueElCached ?? document.getElementById("hud-player-value");
   if (valueEl) {
     const totalCurrent = Math.max(0, Math.floor(shield + hp));
     const totalMaximum = maxShield + maxHealth;
     valueEl.innerHTML = `<span style="color:#fff">${totalCurrent}</span><span style="color:rgba(255,255,255,0.6)"> / ${totalMaximum}</span>`;
   }
 
-  const barEl = document.getElementById("hud-player-bar");
+  const barEl = barElCached ?? document.getElementById("hud-player-bar");
   /* Schild-Phase: gefüllt = Blau, Rest = Rot (Leben dahinter). Health-Phase: gefüllt = Rot, Rest = Schwarz. */
   const trackColor = isShieldState ? HEALTH_TRACK : DEAD_TRACK;
   if (barEl && barEl.children.length === SEGMENTS) {
@@ -288,13 +314,13 @@ export function updateHUD(
       seg.style.background = i < filledSegments ? barColor : trackColor;
     }
   }
-  const barWrap = document.getElementById("hud-player-bar");
+  const barWrap = barElCached ?? document.getElementById("hud-player-bar");
   if (barWrap) (barWrap as HTMLElement).style.background = isShieldState ? "rgba(40,0,0,0.4)" : "rgba(0,0,0,0.5)";
 
-  const nameEl = document.getElementById("hud-player-name");
+  const nameEl = nameElCached ?? document.getElementById("hud-player-name");
   if (nameEl) nameEl.textContent = formatDisplayName(playerName);
 
-  const infoEl = document.getElementById("hud-info");
+  const infoEl = infoElCached ?? document.getElementById("hud-info");
   if (infoEl) {
     const current = debugMode ? "∞" : String(ammo);
     const maximum = debugMode ? "∞" : String(maxAmmo);
@@ -305,17 +331,17 @@ export function updateHUD(
   const remaining = Math.max(0, dashCooldownRemaining ?? 0);
   const fill = 1 - remaining / total;
   const dashReady = remaining <= 0;
-  const dashCircle = document.getElementById("hud-dash-circle");
-  const dashIconEl = document.getElementById("hud-dash-icon");
+  const dashCircle = dashCircleCached ?? document.getElementById("hud-dash-circle");
+  const dashIconEl = dashIconCached ?? document.getElementById("hud-dash-icon");
   if (dashCircle && dashIconEl) {
-    (dashCircle as HTMLElement).style.setProperty("--dash-fill", String(fill));
-    (dashCircle as HTMLElement).style.setProperty("--dash-fill-color", "#4dd0e1");
-    (dashIconEl as HTMLElement).style.color = dashReady ? "#4dd0e1" : "rgba(255,255,255,0.4)";
-    (dashIconEl as HTMLElement).style.filter = dashReady ? "none" : "grayscale(1)";
+    dashCircle.style.setProperty("--dash-fill", String(fill));
+    dashCircle.style.setProperty("--dash-fill-color", "#4dd0e1");
+    dashIconEl.style.color = dashReady ? "#4dd0e1" : "rgba(255,255,255,0.4)";
+    dashIconEl.style.filter = dashReady ? "none" : "grayscale(1)";
   }
-  const linesLeft = document.getElementById("hud-dash-lines-left");
-  const linesRight = document.getElementById("hud-dash-lines-right");
-  const dashStreaks = document.getElementById("hud-dash-streaks");
+  const linesLeft = dashLinesLeftCached ?? document.getElementById("hud-dash-lines-left");
+  const linesRight = dashLinesRightCached ?? document.getElementById("hud-dash-lines-right");
+  const dashStreaks = dashStreaksCached ?? document.getElementById("hud-dash-streaks");
   const show = isDashing ?? false;
   if (linesLeft && linesRight) {
     (linesLeft as HTMLElement).style.opacity = show ? "1" : "0";
@@ -325,8 +351,9 @@ export function updateHUD(
     (dashStreaks as HTMLElement).style.opacity = show ? "0.85" : "0";
   }
 
-  const overlay = document.getElementById("respawn-overlay");
-  const countdownEl = document.getElementById("respawn-countdown");
+  const overlay = respawnOverlayCached ?? document.getElementById("respawn-overlay");
+  const countdownEl =
+    respawnCountdownCached ?? document.getElementById("respawn-countdown");
   if (!overlay || !countdownEl) return;
 
   if (hp <= 0) {

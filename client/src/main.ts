@@ -5,32 +5,20 @@
 import * as THREE from "three";
 import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { GameLoop } from "./core/GameLoop.js";
+import { ClientGame } from "./core/ClientGame.js";
 import { clientConfig } from "./config/index.js";
 import { InputSampler } from "./systems/input/InputState.js";
 import { FPSCamera } from "./systems/camera/FPSCamera.js";
 import { FPSMovementController } from "./systems/movement/FPSMovementController.js";
 import { SceneManager } from "./systems/rendering/SceneManager.js";
-import { createHUD, updateHUD } from "./systems/ui/HUD.js";
-import {
-  createPlayerHealthBars,
-  onPlayerHit,
-  updatePlayerHealthBars,
-} from "./systems/ui/PlayerHealthBars.js";
-import {
-  createHitIndicator,
-  getLastHitAngle,
-  onHitReceived,
-  updateHitIndicators,
-} from "./systems/ui/HitIndicator.js";
-import {
-  createScreenDamageFeedback,
-  updateScreenDamageFeedback,
-} from "./systems/ui/ScreenDamageFeedback.js";
+import { createHUD } from "./systems/ui/HUD.js";
+import { createPlayerHealthBars, onPlayerHit } from "./systems/ui/PlayerHealthBars.js";
+import { createHitIndicator, onHitReceived } from "./systems/ui/HitIndicator.js";
+import { createScreenDamageFeedback } from "./systems/ui/ScreenDamageFeedback.js";
 import {
   createCrosshairHitFeedback,
   triggerCrosshairHit,
   triggerCrosshairKill,
-  updateCrosshairHitFeedback,
 } from "./systems/ui/CrosshairHitFeedback.js";
 import {
   createLoadingScreen,
@@ -38,18 +26,9 @@ import {
   hideLoadingScreen,
 } from "./systems/ui/LoadingScreen.js";
 import { loadMapFromURL } from "./systems/mapLoader/MapLoader.js";
-import { createDebugOverlay, updateDebugOverlay } from "./debug/DebugOverlay.js";
+import { createDebugOverlay } from "./debug/DebugOverlay.js";
 import { DebugHitboxVisualization } from "./debug/DebugVisualization.js";
-import { WEAPON_STUB } from "./systems/gameplay/WeaponStub.js";
 import { ColyseusClient } from "./systems/networking/ColyseusClient.js";
-import {
-  inputStateToPlayerInput,
-  type HitboxPositionsInput,
-} from "./systems/networking/inputMapping.js";
-import {
-  getHitboxPositionsFromModel,
-  type HitboxPositions,
-} from "./systems/animation/getHitboxPositions.js";
 import {
   loadPlayerModelWithAnimations,
   loadMuzzleFlashTextures,
@@ -59,15 +38,22 @@ import { MuzzleFlashEffect } from "./game/MuzzleFlashSystem.js";
 import { PlayerAnimationSystem } from "./systems/animation/PlayerAnimationSystem.js";
 import {
   PLAYER_EYE_HEIGHT,
-  CROUCH_EYE_HEIGHT,
-  MAX_SHIELD,
-  MAX_HEALTH,
-  SHOT_INTERVAL_TICKS,
-  RELOAD_TICKS,
   HEAD_HITBOX_HEIGHT,
   PLAYER_HEIGHT,
   type KillEventPayload,
+  type HitMessagePayload,
+  type HitReceivedPayload,
+  type ShotMessagePayload,
 } from "shared";
+import { createGameSessionState } from "./game/GameSessionState.js";
+import {
+  type GameContext,
+  LocalPlayerTickSystem,
+  NetworkingTickSystem,
+  ViewmodelRenderSystem,
+  SceneAndDebugRenderSystem,
+  UiHudRenderSystem,
+} from "./game/GameSystems.js";
 import { RemotePlayerSync } from "./game/RemotePlayerSync.js";
 import { createPauseMenu, type PauseMenuHandle } from "./systems/ui/PauseMenu.js";
 import {
@@ -88,12 +74,7 @@ import {
   updateViewmodelFrame,
   type ViewmodelState,
 } from "./game/ViewmodelSetup.js";
-import type { ViewmodelMovementInput } from "./game/ViewmodelMovement.js";
-import {
-  createKillfeed,
-  handleKillEvent,
-  updateKillfeed,
-} from "./systems/ui/Killfeed.js";
+import { createKillfeed, handleKillEvent } from "./systems/ui/Killfeed.js";
 import { BulletTracerSystem } from "./game/BulletTracerSystem.js";
 import { BulletImpactSystem } from "./game/BulletImpactSystem.js";
 
@@ -110,7 +91,7 @@ if (tunerParam === "1") {
 } else if (tunerParam === "3p") {
   void import("./tuner/Tuner3PBoot.js").then((m) => m.bootTuner3P(app, canvas));
 } else if (editorParam === "1") {
-  void import("../../tools/editor/src/main.ts").then((m) =>
+  void import("../../tools/editor/src/main.js").then((m) =>
     m.bootEditor(app, {
       initViewmodel: async (camera) => {
         const playerResult = await loadPlayerModelWithAnimations(clientConfig.playerModelUrl);
@@ -178,7 +159,6 @@ if (tunerParam === "1") {
   const remotePlayerSync = new RemotePlayerSync({
     sceneManager,
     movement,
-    playerAnimationSystem: undefined as unknown as PlayerAnimationSystem,
     tracerSystem,
     impactSystem,
   });
@@ -288,23 +268,33 @@ if (tunerParam === "1") {
   });
 
   const debugHitboxes = new DebugHitboxVisualization(sceneManager.getScene());
-  let debugMode = false;
-  let lastHitboxPositions: HitboxPositionsInput | null = null;
-  let lastHitboxPositionsRaw: HitboxPositions | null = null;
-
   const physics = { raycast: (): boolean => false };
   const loop = new GameLoop();
-  let inputTick = 0;
-  let shotThisFrame = false;
-  let clientShootCooldownTicks = 0;
-  let clientReloadTicks = 0;
-
-  let currentEyeHeight = PLAYER_EYE_HEIGHT;
-
-  // Tracks last known local player health to detect respawns (dead -> alive transition)
-  let lastLocalHealth: number | null = null;
-  // Time window after local respawn during which camera should not smooth/lerp
-  let localRespawnNoLerpTime = 0;
+  const game = new ClientGame();
+  const state = createGameSessionState(PLAYER_EYE_HEIGHT);
+  const ctx: GameContext = {
+    state,
+    getIsPlaying: () => uiState === UiState.Playing,
+    input,
+    movement,
+    camera: cameraSystem,
+    physics,
+    netClient,
+    remotePlayerSync,
+    sceneManager,
+    tracerSystem,
+    impactSystem,
+    debugHitboxes,
+    crouchTransitionTau: clientConfig.tuning.crouchTransitionTau,
+    tracerFirstPersonLength: clientConfig.tracerFirstPersonLength ?? 20,
+    debugOverlayEnabled: !!clientConfig.debugOverlay,
+    localPlayerMixer: null,
+    playerViewModel: null,
+    viewmodelState: null,
+    hitboxDummy: null,
+    hitboxDummyMixer: null,
+    muzzleFlashPov: null,
+  };
 
   let playerViewModel: THREE.Object3D | null = null;
   let viewmodelState: ViewmodelState | null = null;
@@ -361,264 +351,27 @@ if (tunerParam === "1") {
         playerAnimationSystem.playStaticIdlePose(hitboxDummyMixer);
       }
     }
+    ctx.playerAnimationSystem = playerAnimationSystem;
+    ctx.viewmodelState = viewmodelState;
+    ctx.localPlayerMixer = localPlayerMixer;
+    ctx.playerViewModel = playerViewModel;
+    ctx.hitboxDummy = hitboxDummy;
+    ctx.hitboxDummyMixer = hitboxDummyMixer;
+    ctx.muzzleFlashPov = muzzleFlashPov;
   }
+
+  game.addTickSystem(new LocalPlayerTickSystem(ctx));
+  game.addTickSystem(new NetworkingTickSystem(ctx));
+  game.addRenderSystem(new ViewmodelRenderSystem(ctx));
+  game.addRenderSystem(new SceneAndDebugRenderSystem(ctx));
+  game.addRenderSystem(new UiHudRenderSystem(ctx));
 
   loop
     .setTickCallback((dt) => {
-      const state = input.getState();
-      if (uiState !== UiState.Playing) {
-        input.tick();
-        return;
-      }
-      // Do not reset shotThisFrame here: it is consumed in render. Resetting here would drop
-      // the shot when multiple ticks run in one frame (first tick sets true, second tick overwrote false).
-      if (clientShootCooldownTicks > 0) clientShootCooldownTicks--;
-      if (clientReloadTicks > 0) clientReloadTicks--;
-      if (state.debugModeJustPressed) debugMode = !debugMode;
-      movement.update(dt, state, physics);
-      const snap = movement.getSnapshot();
-      const targetEyeHeight = snap.crouching ? CROUCH_EYE_HEIGHT : PLAYER_EYE_HEIGHT;
-      currentEyeHeight = THREE.MathUtils.lerp(
-        currentEyeHeight,
-        targetEyeHeight,
-        1 - Math.exp(-dt / clientConfig.tuning.crouchTransitionTau)
-      );
-      cameraSystem.setTargetPosition(
-        snap.position.x,
-        snap.position.y + currentEyeHeight,
-        snap.position.z
-      );
-      cameraSystem.setRotation(snap.yaw, snap.pitch);
-      const aimDir = cameraSystem.getAimDirection();
-      const room = netClient.getRoom();
-      if (room) {
-        const localPlayer = room.state.players.get(room.sessionId);
-        if (localPlayer) {
-          // Detect respawn: previously dead (<=0) and now alive (>0)
-          if (lastLocalHealth !== null && lastLocalHealth <= 0 && localPlayer.health > 0) {
-            // Hard-sync local movement to server spawn position/orientation
-            remotePlayerSync.syncLocalSpawnFromServer(room);
-            const respawnSnap = movement.getSnapshot();
-            currentEyeHeight = respawnSnap.crouching ? CROUCH_EYE_HEIGHT : PLAYER_EYE_HEIGHT;
-            cameraSystem.setTargetPosition(
-              respawnSnap.position.x,
-              respawnSnap.position.y + currentEyeHeight,
-              respawnSnap.position.z
-            );
-            cameraSystem.setRotation(respawnSnap.yaw, respawnSnap.pitch);
-            cameraSystem.snapToTarget();
-            // For a short period after respawn, keep camera snapped (no smoothing)
-            localRespawnNoLerpTime = 0.3;
-          }
-          lastLocalHealth = localPlayer.health;
-
-          const ammo = localPlayer.ammo;
-          const maxAmmo = localPlayer.maxAmmo;
-          const infiniteAmmo = debugMode;
-          if (state.reload && ammo < maxAmmo && clientReloadTicks <= 0)
-            clientReloadTicks = RELOAD_TICKS;
-          const canShoot =
-            state.shoot &&
-            (ammo > 0 || infiniteAmmo) &&
-            clientReloadTicks <= 0 &&
-            clientShootCooldownTicks <= 0 &&
-            localPlayer.health > 0;
-          if (canShoot) {
-            shotThisFrame = true;
-            clientShootCooldownTicks = SHOT_INTERVAL_TICKS;
-          }
-        }
-        const hitboxForInput = lastHitboxPositions ?? undefined;
-        const shootEyePos = state.shoot ? cameraSystem.getEyePosition() : undefined;
-        const playerInput = inputStateToPlayerInput(
-          state,
-          inputTick,
-          snap.position,
-          hitboxForInput ?? undefined,
-          { x: aimDir.x, y: aimDir.y, z: aimDir.z },
-          debugMode,
-          shootEyePos
-        );
-        netClient.sendInput(playerInput);
-        // Do not consume shoot: keep sending shoot=true every tick while button is held
-        // so server can fire at FIRE_RATE (cooldown-limited). Consuming caused only one
-        // shot intent per click and dropped sustained fire.
-        inputTick++;
-        remotePlayerSync.reconcile(room);
-      }
-      input.tick();
+      game.update(dt);
     })
     .setRenderCallback((dt) => {
-      const snap = movement.getSnapshot();
-      if (localPlayerMixer) {
-        playerAnimationSystem.playStaticIdlePose(localPlayerMixer);
-      }
-      if (localRespawnNoLerpTime > 0) {
-        cameraSystem.snapToTarget();
-        localRespawnNoLerpTime -= dt;
-        if (localRespawnNoLerpTime < 0) localRespawnNoLerpTime = 0;
-      } else {
-        cameraSystem.update(dt);
-      }
-      if (localPlayerMixer) localPlayerMixer.update(dt);
-      if (playerViewModel) playerViewModel.updateMatrixWorld(true);
-      if (viewmodelState) {
-        if (shotThisFrame && viewmodelState.muzzleNodeRef) {
-          const aimDir = cameraSystem.getAimDirection();
-          const camera = cameraSystem.getCamera();
-          const eyePos = camera.position.clone();
-          const eyeHitPoint = eyePos
-            .clone()
-            .addScaledVector(
-              aimDir,
-              clientConfig.tracerFirstPersonLength ?? 20
-            );
-          const muzzleWorld = new THREE.Vector3();
-          viewmodelState.muzzleNodeRef.getWorldPosition(muzzleWorld);
-          const tracerDir = eyeHitPoint.clone().sub(muzzleWorld).normalize();
-          const tracerLength = eyeHitPoint.distanceTo(muzzleWorld);
-          tracerSystem.spawnTracer(muzzleWorld, tracerDir, tracerLength);
-          if (muzzleFlashPov) {
-            muzzleFlashPov.trigger(viewmodelState.muzzleNodeRef);
-          }
-        }
-        const reloadProgress =
-          clientReloadTicks > 0 ? 1 - clientReloadTicks / RELOAD_TICKS : 0;
-        const movementInput: ViewmodelMovementInput = {
-          dt,
-          velocity: snap.velocity,
-          state: snap.state,
-          crouching: snap.crouching,
-          yaw: snap.yaw,
-          pitch: snap.pitch,
-          shotThisFrame,
-          reloadProgress,
-          isDashing: movement.isDashing(),
-        };
-        updateViewmodelFrame(viewmodelState, movementInput);
-        if (muzzleFlashPov) muzzleFlashPov.update(dt * 1000);
-        shotThisFrame = false;
-      }
-      remotePlayerSync.updateRemoteMixers(dt);
-      if (hitboxDummy) {
-        hitboxDummy.position.set(snap.position.x, snap.position.y, snap.position.z);
-        hitboxDummy.rotation.set(0, snap.yaw + Math.PI, 0);
-        if (hitboxDummyMixer) {
-          playerAnimationSystem.playStaticIdlePose(hitboxDummyMixer);
-          hitboxDummyMixer.update(dt);
-        }
-        const positions = getHitboxPositionsFromModel(hitboxDummy);
-        if (positions) {
-          lastHitboxPositionsRaw = positions;
-          lastHitboxPositions = {
-            head: { x: positions.head.x, y: positions.head.y, z: positions.head.z },
-            bodyCenter: {
-              x: positions.bodyCenter.x,
-              y: positions.bodyCenter.y,
-              z: positions.bodyCenter.z,
-            },
-            spineTop: {
-              x: positions.spineTop.x,
-              y: positions.spineTop.y,
-              z: positions.spineTop.z,
-            },
-            pelvis: {
-              x: positions.pelvis.x,
-              y: positions.pelvis.y,
-              z: positions.pelvis.z,
-            },
-            feet: {
-              x: positions.feet.x,
-              y: positions.feet.y,
-              z: positions.feet.z,
-            },
-          };
-        } else {
-          lastHitboxPositionsRaw = null;
-          lastHitboxPositions = null;
-        }
-      } else {
-        lastHitboxPositionsRaw = null;
-        lastHitboxPositions = null;
-      }
-      remotePlayerSync.update(netClient.getRoom(), dt);
-      debugHitboxes.setVisible(
-        debugMode,
-        viewmodelState?.viewmodelIsArmsOnly ?? false
-      );
-      const roomForDebug = netClient.getRoom();
-      const localPos = debugMode ? movement.position : null;
-      const remotePositions = roomForDebug
-        ? Array.from(roomForDebug.state.players.entries())
-            .filter(([k]) => k !== roomForDebug.sessionId)
-            .filter(([, p]) => p.health > 0)
-            .map(([id, p]) => {
-              const mesh = remotePlayerSync.getRemotePlayerMeshes().get(id);
-              const hitboxPositions = mesh
-                ? getHitboxPositionsFromModel(mesh)
-                : undefined;
-              return {
-                id,
-                x: p.x,
-                y: p.y,
-                z: p.z,
-                hitboxPositions: hitboxPositions ?? undefined,
-              };
-            })
-        : [];
-      debugHitboxes.update(
-        localPos,
-        remotePositions,
-        lastHitboxPositionsRaw ?? undefined
-      );
-      sceneManager.render(cameraSystem.getCamera());
-      updatePlayerHealthBars(netClient.getRoom(), cameraSystem.getCamera(), dt);
-      const room = netClient.getRoom();
-      const localPlayer = room ? room.state.players.get(room.sessionId) : null;
-      const shield = (localPlayer as { shield?: number })?.shield ?? MAX_SHIELD;
-      const maxShield = (localPlayer as { maxShield?: number })?.maxShield ?? MAX_SHIELD;
-      const hp = localPlayer?.health ?? MAX_HEALTH;
-      const maxHealth = localPlayer?.maxHealth ?? MAX_HEALTH;
-      const ammo = localPlayer?.ammo ?? WEAPON_STUB.ammo;
-      const maxAmmo = localPlayer?.maxAmmo ?? WEAPON_STUB.maxAmmo;
-      const playerName = (localPlayer?.id && localPlayer.id.trim().length > 0)
-        ? localPlayer.id
-        : room?.sessionId ?? "Player";
-      updateHUD(
-        shield,
-        maxShield,
-        hp,
-        maxHealth,
-        ammo,
-        maxAmmo,
-        playerName,
-        debugMode,
-        movement.getDashCooldownRemaining(),
-        movement.getDashCooldownTotal(),
-        movement.isDashing()
-      );
-      updateScreenDamageFeedback(dt, shield, MAX_SHIELD, hp, MAX_HEALTH);
-      updateHitIndicators(snap.yaw, snap.pitch, dt, debugMode);
-      updateKillfeed(dt);
-      updateCrosshairHitFeedback(dt);
-      tracerSystem.update(dt * 1000);
-      impactSystem.update(dt * 1000);
-      if (clientConfig.debugOverlay) {
-        const netInfo =
-          room !== null
-            ? { connected: true, playerCount: room.state.players.size }
-            : { connected: false, playerCount: 0 };
-        updateDebugOverlay(
-          snap.velocity,
-          snap.state,
-          input.getState().sprint,
-          netInfo,
-          debugMode,
-          getLastHitAngle(),
-          netClient.getPing(),
-          debugMode ? movement.getGroundDebugInfo() : undefined
-        );
-      }
+      game.render(dt);
     });
 
   window.addEventListener("resize", () => {
@@ -629,11 +382,9 @@ if (tunerParam === "1") {
 
   initAssets().then(async () => {
     setLoadingMessage("Loading map…", 55);
-    let loadedMapStaticWorld: import("shared").StaticWorld | undefined;
     try {
       const loaded = await loadMapFromURL("/maps/arena_blockout.json");
       sceneManager.setMapGroup(loaded.group);
-      loadedMapStaticWorld = loaded.staticWorld;
       movement.setStaticWorld(loaded.staticWorld);
     } catch (err) {
       console.warn("Failed to load map JSON, using built-in arena.", err);
@@ -649,15 +400,7 @@ if (tunerParam === "1") {
       const room = netClient.getRoom();
       if (room) {
         remotePlayerSync.setup(room);
-        room.onMessage(
-          "hit",
-          (payload: {
-            targetId: string;
-            hitboxType?: "head" | "body";
-            hitX?: number;
-            hitY?: number;
-            hitZ?: number;
-          }) => {
+        room.onMessage("hit", (payload: HitMessagePayload) => {
             onPlayerHit(payload.targetId);
             triggerCrosshairHit();
             // Impact at the actual hit point if the server provided it
@@ -688,16 +431,7 @@ if (tunerParam === "1") {
             }
           }
         );
-        room.onMessage(
-          "hitReceived",
-          (payload: {
-            dirX: number;
-            dirY: number;
-            dirZ: number;
-            hitX?: number;
-            hitY?: number;
-            hitZ?: number;
-          }) => {
+        room.onMessage("hitReceived", (payload: HitReceivedPayload) => {
             onHitReceived(payload.dirX, payload.dirY, payload.dirZ);
             // Impact at the actual hit point (where the bullet hit the victim), not in front of the camera
             if (
@@ -730,20 +464,7 @@ if (tunerParam === "1") {
             triggerCrosshairKill();
           }
         });
-        room.onMessage(
-          "shot",
-          (payload: {
-            shooterId: string;
-            ox: number;
-            oy: number;
-            oz: number;
-            dx: number;
-            dy: number;
-            dz: number;
-            hitX?: number;
-            hitY?: number;
-            hitZ?: number;
-          }) => {
+        room.onMessage("shot", (payload: ShotMessagePayload) => {
             remotePlayerSync.onShot(payload);
             // For the local shooter, also snap the POV tracer and spark to the authoritative hit point.
             if (

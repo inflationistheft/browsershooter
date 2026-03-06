@@ -1,5 +1,10 @@
 /**
- * Rapier physics world wrapper (client). Used for collision queries and character controller.
+ * Rapier physics world wrapper (client).
+ *
+ * Currently core player movement and collision use the shared StaticWorld +
+ * stepPlayerMovement implementation exclusively; this wrapper is reserved for
+ * future features (ragdolls, dynamic props, additional queries) and is not
+ * part of the hot movement path.
  */
 
 import * as RAPIER from "@dimforge/rapier3d";
