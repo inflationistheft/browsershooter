@@ -22,7 +22,8 @@
 
 - **Blockout‑Prefabs (prefabDefs.json):**
   - **Boden/Decke:** `floor_2x2`, `floor_4x4` (Standard), `drop_floor`, `ceiling` – alle `box`, begehbar, blockieren Schuss.
-  - **Wände:** `wall_2x4` (2×6×0.2 m), `wall_4x4` (4×6×0.2 m, Standard) – `box`, `walkableTopOnly: true` (nur Oberseite begehbar, Seiten = Wand/Wallbounce).
+  - **Wände:** `wall_2x4` (2×6×0.2 m), `wall_4x4` (4×6×0.2 m), `wall_4x1` (4×1×0.2 m, niedrige Wand), `wall_4x2` (4×2×0.2 m) – `box`, `walkableTopOnly: true` (nur Oberseite begehbar, Seiten = Wand/Wallbounce). Hinweis: Die IDs (z. B. wall_4x4) sind historisch; die tatsächliche Größe steht in `size` (Breite × Höhe × Tiefe).
+  - **Lampen (Deko, Licht):** `wall_lamp_warm_yellow`, `wall_lamp_orange`, `wall_lamp_cold_white`, `wall_lamp_blue`, `wall_lamp_purple` – `collision: "none"` (keine Kollision). Client und Editor rendern ein kleines emissives Mesh plus PointLight für Sci‑Fi‑Ambiente. Platzierung erfolgt wie bei normalen Prefabs (Grid + Rotation), bevorzugt an Wänden auf gewünschter Höhe (z.B. 4 m bei 6 m Wänden).
   - **Rampe:** `ramp_1x4` – Keil, 4×1.2×2 m (4 m breit, 1 m Steigung über 2 m Tiefe), `walkableTopOnly: true`. Nur die **Oberseite** (Schräge + flache Basis) ist begehbar; von hinten/hoher Seite oder von der Seite wirkt die Rampe wie eine Wand (kein Hochziehen/Teleport). Man läuft von der **tiefen Seite** hoch. Am tiefen Ende 0.2 m flache Basis (bündig mit Boden), danach Schräge. AABB beginnt bei minY + 0.2 (siehe AABB-Regel).
   - **Block:** `solid_block` (2×2×2) – `box`, `walkableTopOnly: true` (nur Oberseite begehbar).
   - **Cover:** `ledge_half_cover`, `ledge_full_cover` – `box`, `walkableTopOnly: true` (nur Oberseite begehbar, Seiten = Wand/Wallbounce).
@@ -48,6 +49,12 @@
   - **Bewegung:** `shared/src/movement/stepPlayerMovement.ts` nutzt `getGroundYAt(…, state.y)` und `resolveStaticWorldXZ`; Spieler wird auf Boden-/Rampenfläche gesnappt, ohne seitliches Hochziehen auf Wände/Ledges.
   - **Editor (Player-Mode):** Die Kollisionswelt im Editor wird **lokal** aus den platzierten Prefabs erzeugt (`buildEditorStaticWorld()`), inkl. `walkableTopOnly` aus prefabDefs. Siehe Abschnitt „Grid/Snap“: AABBs aus Position, Size, Rotation. **Debug (B im Player-Mode):** AABBs werden farblich getrennt – **Grün** = Laufflächen (Oberseite, Rampen-Schräge), **Orange** = Wand/Seiten (nicht begehbar).
   - **Nicht entfernen:** Diese lokale Erzeugung der StaticWorld im Editor beibehalten, damit Begehbarkeit unabhängig vom Shared-Build funktioniert.
+
+- **Rampen (ramp_1x4): Kollision und Movement (Detail):**
+  - **Ramp-Runs (durchgehende Schräge):** Hintereinander platzierte Rampen gleicher Rotation und gleicher „Reihe“ (Schritt = RAMP_DEPTH entlang der Steigungsachse) werden zu **Runs** gruppiert (Shared: `getRampRuns`, Editor: gleiche Logik in `buildEditorStaticWorld`). Beim Aufbau der Kollisions-Blöcke bekommen **Fortsetzungs-Segmente** (ab dem zweiten im Run) `minY = maxY` des Vorgänger-Segments – keine zweite 0,2‑m-Basis an der Naht. So ist die Schräge an den Übergängen stetig (kein Stufen- oder Durchfall-Effekt).
+  - **Bodenabfrage (getGroundYAt / isOnRamp):** Ein Rampen-Block wird nur berücksichtigt, wenn `(px, pz)` innerhalb seiner **Steigungsachse** (axis span + kleiner Naht-Überlapp `RAMP_AXIS_SEAM`) liegt. So „reicht“ das Nachbar-Segment nicht per AABB-Margin in den eigenen Bereich und klemmt nicht mehr auf den Rand-Y – das Runtergehen fühlt sich flüssig an.
+  - **Sliden auf Rampen:** Die Bewegung projiziert die Schwerkraft in die Schräge (`rampSlideGravityFactor` in `shared/src/tuning/movement.ts`): bergab wird das Momentum länger gehalten bzw. beschleunigt, bergauf wird gebremst. Caps auf `slideMaxSpeedOnRamp` bleiben bestehen.
+  - **Kein Durchfallen beim Sliden in die Rampe:** Snap auf Boden nutzt überall `GROUND_SNAP_TOLERANCE` (Slide, Landung aus der Luft, Dash, „stillSliding“). Zusätzlich: Wenn im Slide an der neuen Position kein gültiger Boden gefunden wird, wird ein Punkt halbes dt zurück entlang der Bewegungsrichtung abgefragt und bei gültigem Boden darauf gesnappt – so fällt man nicht durch, wenn man in einem Frame von Flur auf die Rampe rutscht.
 
 ## Loader
 

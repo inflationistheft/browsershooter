@@ -59,6 +59,11 @@ function getPrefabColor(id: string): number {
   if (id.startsWith("floor") || id === "drop_floor") return 0x4488ff;
   if (id === "ceiling") return 0x3366aa;
   if (id.startsWith("wall")) return 0xd8d8dc;
+  if (id.startsWith("wall_lamp_warm_yellow")) return 0xffe3a1;
+  if (id.startsWith("wall_lamp_orange")) return 0xffb26b;
+  if (id.startsWith("wall_lamp_cold_white")) return 0xdbe8ff;
+  if (id.startsWith("wall_lamp_blue")) return 0x6aa7ff;
+  if (id.startsWith("wall_lamp_purple")) return 0xb17cff;
   if (id === "ramp_1x4") return 0x88c060;
   if (id === "solid_block") return 0x888888;
   if (id === "ledge_half_cover" || id === "ledge_full_cover") return 0x6a8a6a;
@@ -70,14 +75,27 @@ function getPrefabColor(id: string): number {
 function createPrefabMesh(id: string): THREE.Mesh {
   const def = prefabDefs[id];
   const size = def?.size ?? [1, 1, 1];
+  const isLamp = id.startsWith("wall_lamp_");
   const geo =
     id === "ramp_1x4"
       ? createRampWedgeGeometry(size[0], size[1], size[2])
       : new THREE.BoxGeometry(size[0], size[1], size[2]);
-  const mat = new THREE.MeshStandardMaterial({ color: getPrefabColor(id) });
+  const lampColor = getPrefabColor(id);
+  const mat = new THREE.MeshStandardMaterial({
+    color: isLamp ? 0x222222 : lampColor,
+    emissive: isLamp ? lampColor : 0x000000,
+    emissiveIntensity: isLamp ? 1.3 : 0,
+  });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.castShadow = false;
   mesh.receiveShadow = true;
+
+  if (isLamp) {
+    const light = new THREE.PointLight(lampColor, 12, 7, 2);
+    light.position.set(0, 0, size[2] * 0.75);
+    mesh.add(light);
+  }
+
   return mesh;
 }
 

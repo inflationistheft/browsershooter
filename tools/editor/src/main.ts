@@ -36,6 +36,13 @@ type PrefabId =
   | "floor_4x4"
   | "wall_2x4"
   | "wall_4x4"
+  | "wall_4x1"
+  | "wall_4x2"
+  | "wall_lamp_warm_yellow"
+  | "wall_lamp_orange"
+  | "wall_lamp_cold_white"
+  | "wall_lamp_blue"
+  | "wall_lamp_purple"
   | "ramp_1x4"
   | "solid_block"
   | "ledge_half_cover"
@@ -187,6 +194,53 @@ function doExportMap(): void {
   URL.revokeObjectURL(url);
 }
 
+function importMapData(data: MapData): void {
+  pushUndoSnapshot();
+  const validPrefabIds = new Set<string>(prefabOrder);
+  prefabInstances.splice(0, prefabInstances.length);
+  for (const p of data.prefabs) {
+    if (!validPrefabIds.has(p.id)) continue;
+    const pos = Array.isArray(p.position) && p.position.length >= 3
+      ? [Number(p.position[0]), Number(p.position[1]), Number(p.position[2])] as [number, number, number]
+      : [0, 0, 0];
+    const rotation = Number(p.rotation) || 0;
+    prefabInstances.push({
+      id: p.id as PrefabId,
+      position: pos,
+      rotation,
+    });
+  }
+
+  for (const sp of spawnPointsInternal) {
+    scene.remove(sp.mesh);
+    sp.mesh.geometry.dispose();
+    (sp.mesh.material as THREE.Material).dispose();
+  }
+  spawnPointsInternal.splice(0, spawnPointsInternal.length);
+  for (const s of data.spawnPoints) {
+    const pos = Array.isArray(s.position) && s.position.length >= 3
+      ? [Number(s.position[0]), Number(s.position[1]), Number(s.position[2])] as [number, number, number]
+      : [0, 0, 0];
+    const spawnMesh = createSpawnMesh(true, Number(s.rotation) || 0);
+    const editorSp: EditorSpawnPoint = {
+      team: typeof s.team === "number" ? s.team : 0,
+      position: pos,
+      rotation: Number(s.rotation) || 0,
+      mesh: spawnMesh,
+      valid: true,
+    };
+    scene.add(spawnMesh);
+    spawnPointsInternal.push(editorSp);
+    validateSpawnPoint(editorSp);
+  }
+
+  rebuildPrefabGroup();
+  rebuildEditorStaticWorld();
+  rebuildCollisionDebugMeshes();
+  revalidateAllSpawnPoints();
+  updateSpawnCountDisplay();
+}
+
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x2a2a35);
 
@@ -202,22 +256,51 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setSize(initW, initH);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio ?? 1, 2));
 
-// Simple orbit camera parameters (target at origin)
-let camRadius = 20;
-let camTheta = Math.PI / 4; // yaw
-let camPhi = Math.PI / 4; // pitch
+// Free-fly camera (editor mode): position + yaw/pitch, WASD + Q/E + right-drag + wheel
+let flyCamX = 20 * Math.sin(Math.PI / 4) * Math.cos(Math.PI / 4);
+let flyCamY = 20 * Math.cos(Math.PI / 4);
+let flyCamZ = 20 * Math.sin(Math.PI / 4) * Math.sin(Math.PI / 4);
+let flyYaw = Math.atan2(-flyCamX, -flyCamZ);
+let flyPitch = Math.asin(-flyCamY / 20);
+const FLY_SPEED = 28;
+const FLY_WHEEL_SPEED = 8;
+const flyKeys = new Set<string>();
 
-function updateCamera(): void {
-  const r = Math.max(5, camRadius);
-  const phi = Math.min(Math.max(0.1, camPhi), Math.PI / 2 - 0.05);
-  const x = r * Math.sin(phi) * Math.cos(camTheta);
-  const y = r * Math.cos(phi);
-  const z = r * Math.sin(phi) * Math.sin(camTheta);
-  camera.position.set(x, y, z);
-  camera.lookAt(0, 0, 0);
+function updateFlyCamera(dt: number): void {
+  const forward = new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(flyPitch, flyYaw, 0, "YXZ"));
+  const right = new THREE.Vector3(1, 0, 0).applyEuler(new THREE.Euler(0, flyYaw, 0, "YXZ"));
+  const up = new THREE.Vector3(0, 1, 0);
+  const move = new THREE.Vector3(0, 0, 0);
+  if (flyKeys.has("KeyW")) move.add(forward);
+  if (flyKeys.has("KeyS")) move.sub(forward);
+  if (flyKeys.has("KeyD")) move.add(right);
+  if (flyKeys.has("KeyA")) move.sub(right);
+  if (flyKeys.has("KeyE")) move.add(up);
+  if (flyKeys.has("KeyQ")) move.sub(up);
+  if (move.lengthSq() > 0) {
+    move.normalize().multiplyScalar(FLY_SPEED * dt);
+    flyCamX += move.x;
+    flyCamY += move.y;
+    flyCamZ += move.z;
+  }
+  camera.position.set(flyCamX, flyCamY, flyCamZ);
+  camera.rotation.order = "YXZ";
+  camera.rotation.y = flyYaw;
+  camera.rotation.x = flyPitch;
+  camera.rotation.z = 0;
+  camera.updateMatrixWorld();
 }
 
-updateCamera();
+function applyFlyCameraFromPosition(): void {
+  camera.position.set(flyCamX, flyCamY, flyCamZ);
+  camera.rotation.order = "YXZ";
+  camera.rotation.y = flyYaw;
+  camera.rotation.x = flyPitch;
+  camera.rotation.z = 0;
+  camera.updateMatrixWorld();
+}
+
+applyFlyCameraFromPosition();
 
 // Lighting
 const ambient = new THREE.AmbientLight(0xffffff, 0.8);
@@ -287,6 +370,10 @@ const lastMouseNDC = new THREE.Vector2(-2, -2);
 const ghostPreviewGroup = new THREE.Group();
 scene.add(ghostPreviewGroup);
 
+let spawnPreviewMesh: THREE.Mesh | null = null;
+const spawnPreviewGroup = new THREE.Group();
+scene.add(spawnPreviewGroup);
+
 // Prefab instances in the scene (no per-instance mesh; display built in prefabGroup with merged ramps)
 const prefabInstances: EditorPrefabInstance[] = [];
 const prefabGroup = new THREE.Group();
@@ -296,6 +383,13 @@ const prefabOrder: PrefabId[] = [
   "floor_4x4",
   "wall_2x4",
   "wall_4x4",
+  "wall_4x1",
+  "wall_4x2",
+  "wall_lamp_warm_yellow",
+  "wall_lamp_orange",
+  "wall_lamp_cold_white",
+  "wall_lamp_blue",
+  "wall_lamp_purple",
   "ramp_1x4",
   "solid_block",
   "ledge_half_cover",
@@ -307,14 +401,39 @@ const prefabOrder: PrefabId[] = [
 ];
 const PREFAB_CATEGORIES: Record<string, PrefabId[]> = {
   Floor: ["floor_2x2", "floor_4x4", "drop_floor", "ceiling"],
-  Wall: ["wall_2x4", "wall_4x4"],
+  Wall: ["wall_2x4", "wall_4x4", "wall_4x1", "wall_4x2"],
   Ramp: ["ramp_1x4"],
   Block: ["solid_block"],
   Cover: ["ledge_half_cover", "ledge_full_cover"],
+  Lights: ["wall_lamp_warm_yellow", "wall_lamp_orange", "wall_lamp_cold_white", "wall_lamp_blue", "wall_lamp_purple"],
   Special: ["spawn_point", "kill_volume"],
+};
+
+/** Anzeigenamen mit tatsächlicher Größe (Breite × Höhe × Tiefe in m). */
+const PREFAB_DISPLAY_NAMES: Partial<Record<PrefabId, string>> = {
+  floor_2x2: "Boden 2×2 m",
+  floor_4x4: "Boden 4×4 m",
+  drop_floor: "Boden 1×1 m",
+  ceiling: "Decke 4×4 m",
+  wall_2x4: "Wand 2×6 m",
+  wall_4x4: "Wand 4×6 m",
+  wall_4x1: "Wand 4×1 m",
+  wall_4x2: "Wand 4×2 m",
+  wall_lamp_warm_yellow: "Lampe warm (Gelb)",
+  wall_lamp_orange: "Lampe warm (Orange)",
+  wall_lamp_cold_white: "Lampe kalt (Weiß)",
+  wall_lamp_blue: "Lampe Blau",
+  wall_lamp_purple: "Lampe Lila",
+  ramp_1x4: "Rampe 4×1.2×2 m",
+  solid_block: "Block 2×2×2 m",
+  ledge_half_cover: "Cover halb",
+  ledge_full_cover: "Cover voll",
+  spawn_point: "Spawn-Punkt",
+  kill_volume: "Kill-Volume",
 };
 let currentPrefab: PrefabId = "floor_4x4";
 let currentRotationDeg = 0;
+let currentSpawnRotationDeg = 0;
 
 (function applySavedEditorSettings() {
   const saved = loadEditorSettings();
@@ -335,6 +454,26 @@ const spawnPointsInternal: EditorSpawnPoint[] = [];
 
 type ToolMode = "prefab" | "spawn";
 let currentTool: ToolMode = "prefab";
+
+type EditorSpawnSnapshot = {
+  team: number;
+  position: [number, number, number];
+  rotation: number;
+};
+
+type EditorSnapshot = {
+  prefabs: EditorPrefabInstance[];
+  spawns: EditorSpawnSnapshot[];
+  placementHeightLevel: number;
+  currentPrefab: PrefabId;
+  currentRotationDeg: number;
+  currentTool: ToolMode;
+};
+
+const UNDO_MAX = 100;
+const undoStack: EditorSnapshot[] = [];
+const redoStack: EditorSnapshot[] = [];
+let isRestoringSnapshot = false;
 
 let isPlayerMode = false;
 let playerDebug = false;
@@ -380,6 +519,99 @@ let editorViewModelApi: EditorViewmodelAPI | null = null;
 /** Cached from localStorage when entering player mode (same key as arena). */
 let editorCachedMouseSensitivity = 0.002;
 
+function captureSnapshot(): EditorSnapshot {
+  return {
+    prefabs: prefabInstances.map((p) => ({
+      id: p.id,
+      position: [p.position[0], p.position[1], p.position[2]],
+      rotation: p.rotation,
+    })),
+    spawns: spawnPointsInternal.map((s) => ({
+      team: s.team,
+      position: [s.position[0], s.position[1], s.position[2]],
+      rotation: s.rotation,
+    })),
+    placementHeightLevel,
+    currentPrefab,
+    currentRotationDeg,
+    currentTool,
+  };
+}
+
+function restoreSnapshot(s: EditorSnapshot): void {
+  isRestoringSnapshot = true;
+  try {
+    prefabInstances.splice(0, prefabInstances.length);
+    for (const p of s.prefabs) {
+      prefabInstances.push({
+        id: p.id,
+        position: [p.position[0], p.position[1], p.position[2]],
+        rotation: p.rotation,
+      });
+    }
+
+    for (const sp of spawnPointsInternal) {
+      scene.remove(sp.mesh);
+      sp.mesh.geometry.dispose();
+      (sp.mesh.material as THREE.Material).dispose();
+    }
+    spawnPointsInternal.splice(0, spawnPointsInternal.length);
+    for (const sp of s.spawns) {
+      const spawnMesh = createSpawnMesh(true, sp.rotation);
+      const editorSp: EditorSpawnPoint = {
+        team: sp.team,
+        position: [sp.position[0], sp.position[1], sp.position[2]],
+        rotation: sp.rotation,
+        mesh: spawnMesh,
+        valid: true,
+      };
+      scene.add(spawnMesh);
+      spawnPointsInternal.push(editorSp);
+      validateSpawnPoint(editorSp);
+    }
+
+    placementHeightLevel = s.placementHeightLevel;
+    currentPrefab = s.currentPrefab;
+    currentRotationDeg = s.currentRotationDeg;
+    currentTool = s.currentTool;
+
+    rebuildPrefabGroup();
+    rebuildEditorStaticWorld();
+    rebuildCollisionDebugMeshes();
+    revalidateAllSpawnPoints();
+    updateSpawnCountDisplay();
+    updatePlacementHeightDisplay();
+    updatePrefabSelectionHighlight();
+    updateInfo();
+    saveEditorSettings();
+  } finally {
+    isRestoringSnapshot = false;
+  }
+}
+
+function pushUndoSnapshot(): void {
+  if (isRestoringSnapshot) return;
+  undoStack.push(captureSnapshot());
+  if (undoStack.length > UNDO_MAX) undoStack.shift();
+  redoStack.splice(0, redoStack.length);
+}
+
+function editorUndo(): void {
+  if (undoStack.length === 0) return;
+  const prev = undoStack.pop()!;
+  redoStack.push(captureSnapshot());
+  if (redoStack.length > UNDO_MAX) redoStack.shift();
+  restoreSnapshot(prev);
+}
+
+function editorRedo(): void {
+  if (redoStack.length === 0) return;
+  const next = redoStack.pop()!;
+  undoStack.push(captureSnapshot());
+  if (undoStack.length > UNDO_MAX) undoStack.shift();
+  restoreSnapshot(next);
+}
+
 function getPrefabColor(id: PrefabId): number {
   switch (id) {
     case "floor_4x4":
@@ -390,7 +622,19 @@ function getPrefabColor(id: PrefabId): number {
       return 0x3366aa;
     case "wall_2x4":
     case "wall_4x4":
+    case "wall_4x1":
+    case "wall_4x2":
       return 0xe8e8ec;
+    case "wall_lamp_warm_yellow":
+      return 0xffe3a1;
+    case "wall_lamp_orange":
+      return 0xffb26b;
+    case "wall_lamp_cold_white":
+      return 0xdbe8ff;
+    case "wall_lamp_blue":
+      return 0x6aa7ff;
+    case "wall_lamp_purple":
+      return 0xb17cff;
     case "ramp_1x4":
       return 0x88c060;
     case "solid_block":
@@ -439,14 +683,27 @@ function createRampWedgeGeometry(width: number, height: number, depth: number): 
 function createPrefabMesh(id: PrefabId): THREE.Mesh {
   const def = prefabDefs[id] as PrefabDef | undefined;
   const size: [number, number, number] = def?.size ?? [1, 1, 1];
+  const lampColor = getPrefabColor(id);
+  const isLamp = id.startsWith("wall_lamp_");
   const geo =
     id === "ramp_1x4"
       ? createRampWedgeGeometry(size[0], size[1], size[2])
       : new THREE.BoxGeometry(size[0], size[1], size[2]);
-  const mat = new THREE.MeshStandardMaterial({ color: getPrefabColor(id) });
+  const mat = new THREE.MeshStandardMaterial({
+    color: isLamp ? 0x222222 : lampColor,
+    emissive: isLamp ? lampColor : 0x000000,
+    emissiveIntensity: isLamp ? 1.3 : 0,
+  });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.castShadow = false;
   mesh.receiveShadow = true;
+
+  if (isLamp) {
+    const light = new THREE.PointLight(lampColor, 12, 7, 2);
+    light.position.set(0, 0, size[2] * 0.75);
+    mesh.add(light);
+  }
+
   return mesh;
 }
 
@@ -563,8 +820,18 @@ function buildMergedRampMeshes(instances: EditorPrefabInstance[]): THREE.Mesh[] 
   return meshes;
 }
 
-/** Which prefab instance (index) contains this world point; used for delete-after-raycast. */
-function findPrefabInstanceIndexAt(worldX: number, worldY: number, worldZ: number): number | null {
+/** Margin for hit-to-AABB test so boundary hits still match (avoids delete misses). */
+const DELETE_HIT_MARGIN = 0.08;
+
+/** Which prefab instance (index) contains this world point; used for delete-after-raycast. Uses a small AABB margin so ray hits near edges still match. If cameraPos is given and multiple instances match, returns the one closest to the camera. */
+function findPrefabInstanceIndexAt(
+  worldX: number,
+  worldY: number,
+  worldZ: number,
+  cameraPos?: { x: number; y: number; z: number }
+): number | null {
+  const m = DELETE_HIT_MARGIN;
+  let best: { index: number; distSq: number } | null = null;
   for (let i = 0; i < prefabInstances.length; i++) {
     const inst = prefabInstances[i]!;
     const def = prefabDefs[inst.id] as PrefabDef | undefined;
@@ -575,16 +842,20 @@ function findPrefabInstanceIndexAt(worldX: number, worldY: number, worldZ: numbe
     const rot90 = rot === 90 || rot === 270;
     const halfX = (rot90 ? sz : sx) / 2;
     const halfZ = (rot90 ? sx : sz) / 2;
-    const minX = cx - halfX;
-    const maxX = cx + halfX;
-    const minZ = cz - halfZ;
-    const maxZ = cz + halfZ;
+    const minX = cx - halfX - m;
+    const maxX = cx + halfX + m;
+    const minZ = cz - halfZ - m;
+    const maxZ = cz + halfZ + m;
     if (worldX < minX || worldX > maxX || worldZ < minZ || worldZ > maxZ) continue;
-    const minY = def.collision === "ramp" ? cy - sy / 2 + RAMP_VISUAL_BASE : cy - sy / 2;
-    const maxY = cy + sy / 2;
-    if (worldY >= minY && worldY <= maxY) return i;
+    const minY = (def.collision === "ramp" ? cy - sy / 2 + RAMP_VISUAL_BASE : cy - sy / 2) - m;
+    const maxY = cy + sy / 2 + m;
+    if (worldY < minY || worldY > maxY) continue;
+    const distSq = cameraPos
+      ? (cx - cameraPos.x) ** 2 + (cy - cameraPos.y) ** 2 + (cz - cameraPos.z) ** 2
+      : 0;
+    if (best === null || distSq < best.distSq) best = { index: i, distSq };
   }
-  return null;
+  return best?.index ?? null;
 }
 
 function rebuildPrefabGroup(): void {
@@ -656,21 +927,24 @@ function updateInfo(): void {
     currentTool === "prefab"
       ? "Links: Block platzieren, Rechts: Block löschen"
       : "Links: Spawn platzieren, Rechts: Spawn löschen";
+  const rotLabel =
+    currentTool === "prefab"
+      ? `Rotation: ${currentRotationDeg}°`
+      : `Spawn-Rotation: ${currentSpawnRotationDeg}°`;
   info.textContent = [
     `Tool: ${toolLabel}`,
     `Prefab: ${currentPrefab}`,
-    `Rotation: ${currentRotationDeg}°`,
+    rotLabel,
     `Bauhöhe: ${placementHeightLevel} (Y-Basis ${placementHeightLevel * PLACEMENT_LEVEL_STEP} m)`,
     "",
     actionHint,
-    "Taste 1-5: Prefab-Typ (Block-Tool)",
+    "Taste 1-7: Prefab-Typ (Block-Tool)",
     "Bild↑ / Bild↓: Bauhöhe +1 / -1 (nach oben/unten bauen)",
     "T: Tool wechseln (Block/Spawn)",
     "P: Player-Mode (Movement 1:1, inkl. Walljump)",
     "B: Debug (Spawn + AABBs) – Grün = Lauffläche, Orange = Wand/Seiten",
-    "R: Rotation +90° (Block-Tool)",
-    "Maus-Rechts ziehen: Kamera drehen (Orbit)",
-    "Mausrad: Zoom",
+    "R: Rotation +90° (Block/Spawn)",
+    "WASD: Kamera fliegen, Q/E: hoch/runter, Maus-Rechts ziehen: umschauen, Mausrad: vor/zurück",
     "Player-Mode: Linksklick = FPS-Maus (Pointer Lock)",
     "",
     "Exportierte Map = gleiches JSON wie Multiplayer (maps/*.json).",
@@ -687,6 +961,39 @@ rightPanelExport.textContent = "Map exportieren";
 rightPanelExport.style.cssText = "margin:8px;padding:8px 12px;background:#334466;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;";
 rightPanelExport.onclick = doExportMap;
 rightPanel.appendChild(rightPanelExport);
+
+const rightPanelImport = document.createElement("button");
+rightPanelImport.textContent = "Map importieren";
+rightPanelImport.style.cssText = "margin:8px;margin-top:0;padding:8px 12px;background:#334466;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;";
+rightPanel.appendChild(rightPanelImport);
+
+const fileInput = document.createElement("input");
+fileInput.type = "file";
+fileInput.accept = ".json,application/json";
+fileInput.style.display = "none";
+rightPanel.appendChild(fileInput);
+
+fileInput.addEventListener("change", () => {
+  const file = fileInput.files?.[0];
+  fileInput.value = "";
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const text = reader.result as string;
+      const data = JSON.parse(text) as MapData;
+      if (!data || typeof data.version !== "number" || !Array.isArray(data.prefabs) || !Array.isArray(data.spawnPoints)) {
+        alert("Ungültiges Map-Format: version, prefabs und spawnPoints erwartet.");
+        return;
+      }
+      importMapData(data);
+    } catch (e) {
+      alert("Fehler beim Lesen der Datei: " + (e instanceof Error ? e.message : String(e)));
+    }
+  };
+  reader.readAsText(file);
+});
+rightPanelImport.addEventListener("click", () => fileInput.click());
 
 let rightPanelCollapsed = false;
 const rightPanelToggle = document.createElement("button");
@@ -730,7 +1037,7 @@ for (const [catName, ids] of Object.entries(PREFAB_CATEGORIES)) {
   for (const id of ids) {
     const row = document.createElement("div");
     row.style.cssText = "padding:6px 12px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,0.06);";
-    row.textContent = id;
+    row.textContent = PREFAB_DISPLAY_NAMES[id] ?? id;
     row.addEventListener("click", () => {
       currentPrefab = id;
       updatePrefabSelectionHighlight();
@@ -754,7 +1061,8 @@ rotateBtn.type = "button";
 rotateBtn.textContent = "Rotate +90°";
 rotateBtn.style.cssText = "margin:8px;padding:6px 10px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);color:#ccc;border-radius:4px;cursor:pointer;font-size:11px;";
 rotateBtn.addEventListener("click", () => {
-  currentRotationDeg = (currentRotationDeg + 90) % 360;
+  if (currentTool === "spawn") currentSpawnRotationDeg = (currentSpawnRotationDeg + 90) % 360;
+  else currentRotationDeg = (currentRotationDeg + 90) % 360;
   updateInfo();
   saveEditorSettings();
 });
@@ -837,14 +1145,31 @@ function findTopSurfaceYAt(x: number, z: number): number | null {
   return bestY;
 }
 
-function createSpawnMesh(valid: boolean): THREE.Mesh {
+function createSpawnMesh(valid: boolean, rotationDeg: number, preview: boolean = false): THREE.Mesh {
   const geo = new THREE.CylinderGeometry(0.15, 0.15, 1, 12);
   const mat = new THREE.MeshStandardMaterial({
     color: valid ? 0x00ff88 : 0xff3355,
+    transparent: preview,
+    opacity: preview ? 0.45 : 1,
   });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.castShadow = false;
   mesh.receiveShadow = false;
+  mesh.rotation.y = THREE.MathUtils.degToRad(rotationDeg);
+
+  // Direction arrow (points to +Z in local space)
+  const arrowMat = mat;
+  const shaftGeo = new THREE.BoxGeometry(0.05, 0.05, 0.35);
+  const shaft = new THREE.Mesh(shaftGeo, arrowMat);
+  shaft.position.set(0, 0.55, 0.18);
+  const headGeo = new THREE.ConeGeometry(0.08, 0.18, 10);
+  const head = new THREE.Mesh(headGeo, arrowMat);
+  head.rotation.x = Math.PI / 2;
+  head.position.set(0, 0.55, 0.38);
+  shaft.name = "spawnArrowShaft";
+  head.name = "spawnArrowHead";
+  mesh.add(shaft);
+  mesh.add(head);
   return mesh;
 }
 
@@ -855,6 +1180,7 @@ function validateSpawnPoint(sp: EditorSpawnPoint): void {
   const y = valid ? (topY as number) : 0;
   sp.position[1] = y;
   sp.mesh.position.set(sp.position[0], y + 0.5, sp.position[2]);
+  sp.mesh.rotation.y = THREE.MathUtils.degToRad(sp.rotation);
   (sp.mesh.material as THREE.MeshStandardMaterial).color.set(
     valid ? 0x00ff88 : 0xff3355
   );
@@ -1066,12 +1392,13 @@ function rebuildCollisionDebugMeshes(): void {
 }
 
 function updateDebugVisibility(): void {
-  const show = isPlayerMode && playerDebug;
+  const showSpawns = (!isPlayerMode && currentTool === "spawn") || (isPlayerMode && (playerDebug || currentTool === "spawn"));
+  const showDebug = isPlayerMode && playerDebug;
   for (const sp of spawnPointsInternal) {
-    sp.mesh.visible = show;
+    sp.mesh.visible = showSpawns;
   }
   for (const helper of collisionDebugHelpers) {
-    helper.visible = show;
+    helper.visible = showDebug;
   }
   gridHelper.visible = !isPlayerMode || playerDebug;
 }
@@ -1150,7 +1477,25 @@ function rebuildEditorStaticWorld(): void {
   editorStaticWorld = buildEditorStaticWorld();
 }
 
+function placePrefabFromCameraCrosshair(): void {
+  pushUndoSnapshot();
+  const raycaster = new THREE.Raycaster();
+  const ndcCenter = new THREE.Vector2(0, 0);
+  raycaster.setFromCamera(ndcCenter, camera);
+  const baseY = placementHeightLevel * PLACEMENT_LEVEL_STEP;
+  const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -baseY);
+  const target = new THREE.Vector3();
+  const hit = raycaster.ray.intersectPlane(plane, target);
+  if (!hit) return;
+  const x = Math.round(target.x / GRID_SIZE) * GRID_SIZE;
+  const z = Math.round(target.z / GRID_SIZE) * GRID_SIZE;
+  addPrefabAt(currentPrefab, x, z, currentRotationDeg);
+  rebuildEditorStaticWorld();
+  rebuildCollisionDebugMeshes();
+}
+
 function placePrefabFromPointer(ev: MouseEvent): void {
+  pushUndoSnapshot();
   const rect = canvas.getBoundingClientRect();
   const ndcX = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
   const ndcY = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
@@ -1161,7 +1506,34 @@ function placePrefabFromPointer(ev: MouseEvent): void {
   rebuildCollisionDebugMeshes();
 }
 
+function placeSpawnFromCameraCrosshair(): void {
+  pushUndoSnapshot();
+  const raycaster = new THREE.Raycaster();
+  const ndcCenter = new THREE.Vector2(0, 0);
+  raycaster.setFromCamera(ndcCenter, camera);
+  const ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  const target = new THREE.Vector3();
+  const hit = raycaster.ray.intersectPlane(ground, target);
+  if (!hit) return;
+  const snappedX = Math.round(target.x / GRID_SIZE) * GRID_SIZE;
+  const snappedZ = Math.round(target.z / GRID_SIZE) * GRID_SIZE;
+  const spawnPos: [number, number, number] = [snappedX, 0, snappedZ];
+  const spawnMesh = createSpawnMesh(true, currentSpawnRotationDeg);
+  const sp: EditorSpawnPoint = {
+    team: 0,
+    position: spawnPos,
+    rotation: currentSpawnRotationDeg,
+    mesh: spawnMesh,
+    valid: true,
+  };
+  scene.add(spawnMesh);
+  spawnPointsInternal.push(sp);
+  validateSpawnPoint(sp);
+  updateSpawnCountDisplay();
+}
+
 function placeSpawnFromPointer(ev: MouseEvent): void {
+  pushUndoSnapshot();
   const rect = canvas.getBoundingClientRect();
   const x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
   const y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
@@ -1175,11 +1547,11 @@ function placeSpawnFromPointer(ev: MouseEvent): void {
   const snappedX = Math.round(target.x / GRID_SIZE) * GRID_SIZE;
   const snappedZ = Math.round(target.z / GRID_SIZE) * GRID_SIZE;
   const spawnPos: [number, number, number] = [snappedX, 0, snappedZ];
-  const spawnMesh = createSpawnMesh(true);
+  const spawnMesh = createSpawnMesh(true, currentSpawnRotationDeg);
   const sp: EditorSpawnPoint = {
     team: 0,
     position: spawnPos,
-    rotation: 0,
+    rotation: currentSpawnRotationDeg,
     mesh: spawnMesh,
     valid: true,
   };
@@ -1191,6 +1563,7 @@ function placeSpawnFromPointer(ev: MouseEvent): void {
 
 function deletePrefabFromPointer(ev: MouseEvent): void {
   if (prefabInstances.length === 0 || prefabGroup.children.length === 0) return;
+  pushUndoSnapshot();
   const rect = canvas.getBoundingClientRect();
   const x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
   const y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
@@ -1201,7 +1574,8 @@ function deletePrefabFromPointer(ev: MouseEvent): void {
   if (hits.length === 0) return;
   const hit = hits[0];
   const hitPoint = hit.point;
-  const index = findPrefabInstanceIndexAt(hitPoint.x, hitPoint.y, hitPoint.z);
+  const camPos = { x: camera.position.x, y: camera.position.y, z: camera.position.z };
+  const index = findPrefabInstanceIndexAt(hitPoint.x, hitPoint.y, hitPoint.z, camPos);
   if (index !== null && index >= 0) {
     prefabInstances.splice(index, 1);
     rebuildPrefabGroup();
@@ -1213,12 +1587,33 @@ function deletePrefabFromPointer(ev: MouseEvent): void {
 
 function deleteSpawnFromPointer(ev: MouseEvent): void {
   if (spawnPointsInternal.length === 0) return;
+  pushUndoSnapshot();
   const rect = canvas.getBoundingClientRect();
   const x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
   const y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
   const raycaster = new THREE.Raycaster();
   const mouse = new THREE.Vector2(x, y);
   raycaster.setFromCamera(mouse, camera);
+  const meshes = spawnPointsInternal.map((s) => s.mesh);
+  const hits = raycaster.intersectObjects(meshes, false);
+  if (hits.length === 0) return;
+  const first = hits[0].object as THREE.Mesh;
+  const index = spawnPointsInternal.findIndex((s) => s.mesh === first);
+  if (index >= 0) {
+    scene.remove(spawnPointsInternal[index].mesh);
+    spawnPointsInternal[index].mesh.geometry.dispose();
+    (spawnPointsInternal[index].mesh.material as THREE.Material).dispose();
+    spawnPointsInternal.splice(index, 1);
+    updateSpawnCountDisplay();
+  }
+}
+
+function deleteSpawnFromCameraCrosshair(): void {
+  if (spawnPointsInternal.length === 0) return;
+  pushUndoSnapshot();
+  const raycaster = new THREE.Raycaster();
+  const ndcCenter = new THREE.Vector2(0, 0);
+  raycaster.setFromCamera(ndcCenter, camera);
   const meshes = spawnPointsInternal.map((s) => s.mesh);
   const hits = raycaster.intersectObjects(meshes, false);
   if (hits.length === 0) return;
@@ -1240,10 +1635,66 @@ let lastMouseY = 0;
 
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
+// Undo/Redo: Ctrl/Cmd+Z und Ctrl/Cmd+Shift+Z (oder Ctrl/Cmd+Y)
+window.addEventListener(
+  "keydown",
+  (e) => {
+    const isMod = e.ctrlKey || e.metaKey;
+    if (!isMod) return;
+    const key = e.key?.toLowerCase();
+    if (key === "z") {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if (e.shiftKey) editorRedo();
+      else editorUndo();
+    } else if (key === "y") {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      editorRedo();
+    }
+  },
+  { capture: true }
+);
+
 canvas.addEventListener("mousedown", (e) => {
   if (isPlayerMode) {
-    if (e.button !== 0) return;
-    return; // FPS look: pointer lock only via click (same as client)
+    const pointerLocked = document.pointerLockElement === canvas;
+    if (!pointerLocked) {
+      // Pointer-Lock wird über click-Handler angefordert; hier noch keine Editor-Aktion.
+      return;
+    }
+    if (e.button === 0) {
+      if (currentTool === "prefab") placePrefabFromCameraCrosshair();
+      else placeSpawnFromCameraCrosshair();
+    } else if (e.button === 2) {
+      if (currentTool === "prefab") {
+        pushUndoSnapshot();
+        const raycaster = new THREE.Raycaster();
+        const ndcCenter = new THREE.Vector2(0, 0);
+        raycaster.setFromCamera(ndcCenter, camera);
+        const hits = raycaster.intersectObjects(prefabGroup.children, false);
+        if (hits.length === 0) return;
+        const hit = hits[0];
+        const hitPoint = hit.point;
+        const camPos = { x: camera.position.x, y: camera.position.y, z: camera.position.z };
+        const index = findPrefabInstanceIndexAt(
+          hitPoint.x,
+          hitPoint.y,
+          hitPoint.z,
+          camPos
+        );
+        if (index !== null && index >= 0) {
+          prefabInstances.splice(index, 1);
+          rebuildPrefabGroup();
+          revalidateAllSpawnPoints();
+          rebuildEditorStaticWorld();
+          rebuildCollisionDebugMeshes();
+        }
+      } else {
+        deleteSpawnFromCameraCrosshair();
+      }
+    }
+    return;
   }
   if (e.button === 0) {
     if (currentTool === "prefab") placePrefabFromPointer(e);
@@ -1333,16 +1784,34 @@ document.addEventListener("mousemove", (e: MouseEvent) => {
   const deltaY = e.clientY - lastMouseY;
   lastMouseX = e.clientX;
   lastMouseY = e.clientY;
-  camTheta -= deltaX * 0.005;
-  camPhi -= deltaY * 0.005;
-  updateCamera();
+  flyYaw -= deltaX * 0.005;
+  flyPitch -= deltaY * 0.005;
+  flyPitch = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05, flyPitch));
+  applyFlyCameraFromPosition();
 });
 
 window.addEventListener("wheel", (e) => {
   if (isPlayerMode) return;
-  camRadius *= 1 + (e.deltaY * 0.002);
-  camRadius = Math.min(Math.max(camRadius, 5), 80);
-  updateCamera();
+  e.preventDefault();
+  const forward = new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(flyPitch, flyYaw, 0, "YXZ"));
+  const sign = e.deltaY > 0 ? -1 : 1;
+  flyCamX += forward.x * FLY_WHEEL_SPEED * sign;
+  flyCamY += forward.y * FLY_WHEEL_SPEED * sign;
+  flyCamZ += forward.z * FLY_WHEEL_SPEED * sign;
+  applyFlyCameraFromPosition();
+}, { passive: false });
+
+const FLY_KEY_CODES = ["KeyW", "KeyS", "KeyA", "KeyD", "KeyQ", "KeyE"];
+document.addEventListener("keydown", (e) => {
+  if (isPlayerMode) return;
+  if (e.repeat) return;
+  if (FLY_KEY_CODES.includes(e.code)) {
+    flyKeys.add(e.code);
+    e.preventDefault();
+  }
+});
+document.addEventListener("keyup", (e) => {
+  if (FLY_KEY_CODES.includes(e.code)) flyKeys.delete(e.code);
 });
 
 function enterPlayerMode(): void {
@@ -1443,6 +1912,11 @@ function exitPlayerMode(): void {
   if (document.pointerLockElement === canvas) {
     document.exitPointerLock();
   }
+  flyCamX = camera.position.x;
+  flyCamY = camera.position.y;
+  flyCamZ = camera.position.z;
+  flyYaw = camera.rotation.y;
+  flyPitch = camera.rotation.x;
   updateDebugVisibility();
   updateInfo();
 }
@@ -1582,14 +2056,13 @@ function updatePlayer(dt: number): void {
 
 // Keyboard: switch prefab + rotation + tool mode + player controls
 window.addEventListener("keydown", (e) => {
-  if (isPlayerMode) {
-    handlePlayerKeyDown(e);
-    return;
-  }
-  if (e.code === "KeyP") {
+  // Enter Player-Mode (nur aus Editor heraus; im Player-Mode beendet KeyP den Modus über handlePlayerKeyDown)
+  if (!isPlayerMode && e.code === "KeyP") {
     enterPlayerMode();
     return;
   }
+
+  // Editor-Hotkeys, die sowohl im normalen Editor als auch im Player-Editor-Modus funktionieren sollen.
   if (e.key === "PageUp") {
     e.preventDefault();
     placementHeightLevel += 1;
@@ -1606,19 +2079,49 @@ window.addEventListener("keydown", (e) => {
     saveEditorSettings();
     return;
   }
-  if (e.key === "1") currentPrefab = "floor_4x4";
-  else if (e.key === "2") currentPrefab = "floor_2x2";
-  else if (e.key === "3") currentPrefab = "wall_2x4";
-  else if (e.key === "4") currentPrefab = "wall_4x4";
-  else if (e.key === "5") currentPrefab = "ramp_1x4";
-  else if (e.key === "t" || e.key === "T") {
+
+  let editorHotkeyUsed = false;
+  if (e.key === "1") {
+    currentPrefab = "floor_4x4";
+    editorHotkeyUsed = true;
+  } else if (e.key === "2") {
+    currentPrefab = "floor_2x2";
+    editorHotkeyUsed = true;
+  } else if (e.key === "3") {
+    currentPrefab = "wall_2x4";
+    editorHotkeyUsed = true;
+  } else if (e.key === "4") {
+    currentPrefab = "wall_4x4";
+    editorHotkeyUsed = true;
+  } else if (e.key === "5") {
+    currentPrefab = "ramp_1x4";
+    editorHotkeyUsed = true;
+  } else if (e.key === "6") {
+    currentPrefab = "wall_4x1";
+    editorHotkeyUsed = true;
+  } else if (e.key === "7") {
+    currentPrefab = "wall_4x2";
+    editorHotkeyUsed = true;
+  } else if (e.key === "t" || e.key === "T") {
     currentTool = currentTool === "prefab" ? "spawn" : "prefab";
+    editorHotkeyUsed = true;
   } else if (e.key === "r" || e.key === "R") {
-    currentRotationDeg = (currentRotationDeg + 90) % 360;
+    if (currentTool === "spawn") currentSpawnRotationDeg = (currentSpawnRotationDeg + 90) % 360;
+    else currentRotationDeg = (currentRotationDeg + 90) % 360;
+    editorHotkeyUsed = true;
   }
-  updatePrefabSelectionHighlight();
-  updateInfo();
-  saveEditorSettings();
+  if (editorHotkeyUsed) {
+    updatePrefabSelectionHighlight();
+    updateInfo();
+    saveEditorSettings();
+    // Im Player-Mode zusätzlich Movement-Handling zulassen (z.B. gleichzeitiges Drücken von WASD),
+    // daher kein sofortiges return.
+  }
+
+  if (isPlayerMode) {
+    handlePlayerKeyDown(e);
+    return;
+  }
 });
 
 window.addEventListener("keyup", (e) => {
@@ -1670,29 +2173,109 @@ function animate(time: number): void {
       camera.updateProjectionMatrix();
       renderer.setSize(w, h);
     }
-    if (currentTool === "prefab" && !isPlayerMode) {
-      const pos = getSnappedPlacePosition(lastMouseNDC.x, lastMouseNDC.y, currentPrefab);
-      if (pos) {
-        if (ghostPreviewPrefabId !== currentPrefab || !ghostPreviewMesh) {
-          if (ghostPreviewMesh) {
-            ghostPreviewGroup.remove(ghostPreviewMesh);
-            ghostPreviewMesh.geometry.dispose();
-            (ghostPreviewMesh.material as THREE.Material).dispose();
+    if (currentTool === "prefab") {
+      if (!isPlayerMode) {
+        const pos = getSnappedPlacePosition(lastMouseNDC.x, lastMouseNDC.y, currentPrefab);
+        if (pos) {
+          if (ghostPreviewPrefabId !== currentPrefab || !ghostPreviewMesh) {
+            if (ghostPreviewMesh) {
+              ghostPreviewGroup.remove(ghostPreviewMesh);
+              ghostPreviewMesh.geometry.dispose();
+              (ghostPreviewMesh.material as THREE.Material).dispose();
+            }
+            ghostPreviewMesh = createGhostPreviewMesh(currentPrefab);
+            ghostPreviewGroup.add(ghostPreviewMesh);
+            ghostPreviewPrefabId = currentPrefab;
           }
-          ghostPreviewMesh = createGhostPreviewMesh(currentPrefab);
-          ghostPreviewGroup.add(ghostPreviewMesh);
-          ghostPreviewPrefabId = currentPrefab;
+          ghostPreviewMesh.visible = true;
+          const ghostRampY = currentPrefab === "ramp_1x4" ? RAMP_VISUAL_BASE / 2 : 0;
+          ghostPreviewMesh.position.set(pos.x, pos.centerY + ghostRampY, pos.z);
+          ghostPreviewMesh.rotation.y = THREE.MathUtils.degToRad(currentRotationDeg);
+        } else if (ghostPreviewMesh) {
+          ghostPreviewMesh.visible = false;
         }
-        ghostPreviewMesh.visible = true;
-        const ghostRampY = currentPrefab === "ramp_1x4" ? RAMP_VISUAL_BASE / 2 : 0;
-        ghostPreviewMesh.position.set(pos.x, pos.centerY + ghostRampY, pos.z);
-        ghostPreviewMesh.rotation.y = THREE.MathUtils.degToRad(currentRotationDeg);
-      } else {
-        if (ghostPreviewMesh) ghostPreviewMesh.visible = false;
+      } else if (document.pointerLockElement === canvas) {
+        // Player-Editor-Modus: Ghost an Fadenkreuz auf aktueller Bauhöhe
+        const raycaster = new THREE.Raycaster();
+        const ndcCenter = new THREE.Vector2(0, 0);
+        raycaster.setFromCamera(ndcCenter, camera);
+        const baseY = placementHeightLevel * PLACEMENT_LEVEL_STEP;
+        const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -baseY);
+        const target = new THREE.Vector3();
+        const hit = raycaster.ray.intersectPlane(plane, target);
+        if (hit) {
+          const x = Math.round(target.x / GRID_SIZE) * GRID_SIZE;
+          const z = Math.round(target.z / GRID_SIZE) * GRID_SIZE;
+          if (ghostPreviewPrefabId !== currentPrefab || !ghostPreviewMesh) {
+            if (ghostPreviewMesh) {
+              ghostPreviewGroup.remove(ghostPreviewMesh);
+              ghostPreviewMesh.geometry.dispose();
+              (ghostPreviewMesh.material as THREE.Material).dispose();
+            }
+            ghostPreviewMesh = createGhostPreviewMesh(currentPrefab);
+            ghostPreviewGroup.add(ghostPreviewMesh);
+            ghostPreviewPrefabId = currentPrefab;
+          }
+          ghostPreviewMesh.visible = true;
+          const ghostRampY = currentPrefab === "ramp_1x4" ? RAMP_VISUAL_BASE / 2 : 0;
+          ghostPreviewMesh.position.set(x, baseY + (currentPrefab === "ramp_1x4" ? ghostRampY : 0), z);
+          ghostPreviewMesh.rotation.y = THREE.MathUtils.degToRad(currentRotationDeg);
+        } else if (ghostPreviewMesh) {
+          ghostPreviewMesh.visible = false;
+        }
+      } else if (ghostPreviewMesh) {
+        ghostPreviewMesh.visible = false;
       }
-    } else {
-      if (ghostPreviewMesh) ghostPreviewMesh.visible = false;
+    } else if (ghostPreviewMesh) {
+      ghostPreviewMesh.visible = false;
     }
+
+    // Spawn preview (shows exact position + direction)
+    if (currentTool === "spawn") {
+      const raycaster = new THREE.Raycaster();
+      const target = new THREE.Vector3();
+      let snappedX: number | null = null;
+      let snappedZ: number | null = null;
+
+      if (!isPlayerMode) {
+        const rect = canvas.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+          const ndc = new THREE.Vector2(lastMouseNDC.x, lastMouseNDC.y);
+          raycaster.setFromCamera(ndc, camera);
+          const ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+          const hit = raycaster.ray.intersectPlane(ground, target);
+          if (hit) {
+            snappedX = Math.round(target.x / GRID_SIZE) * GRID_SIZE;
+            snappedZ = Math.round(target.z / GRID_SIZE) * GRID_SIZE;
+          }
+        }
+      } else if (document.pointerLockElement === canvas) {
+        raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+        const ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+        const hit = raycaster.ray.intersectPlane(ground, target);
+        if (hit) {
+          snappedX = Math.round(target.x / GRID_SIZE) * GRID_SIZE;
+          snappedZ = Math.round(target.z / GRID_SIZE) * GRID_SIZE;
+        }
+      }
+
+      if (snappedX !== null && snappedZ !== null) {
+        const y = findTopSurfaceYAt(snappedX, snappedZ) ?? 0;
+        if (!spawnPreviewMesh) {
+          spawnPreviewMesh = createSpawnMesh(true, currentSpawnRotationDeg, true);
+          spawnPreviewGroup.add(spawnPreviewMesh);
+        }
+        spawnPreviewMesh.visible = true;
+        (spawnPreviewMesh.material as THREE.MeshStandardMaterial).color.set(0x00ff88);
+        spawnPreviewMesh.position.set(snappedX, y + 0.5, snappedZ);
+        spawnPreviewMesh.rotation.y = THREE.MathUtils.degToRad(currentSpawnRotationDeg);
+      } else if (spawnPreviewMesh) {
+        spawnPreviewMesh.visible = false;
+      }
+    } else if (spawnPreviewMesh) {
+      spawnPreviewMesh.visible = false;
+    }
+    if (!isPlayerMode) updateFlyCamera(dt);
     updatePlayer(dt);
     renderer.render(scene, camera);
   }

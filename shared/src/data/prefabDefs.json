@@ -21,6 +21,18 @@
     "size": [4, 6, 0.2],
     "walkableTopOnly": true
   },
+  "wall_4x1": {
+    "mesh": "placeholder",
+    "collision": "box",
+    "size": [4, 1, 0.2],
+    "walkableTopOnly": true
+  },
+  "wall_4x2": {
+    "mesh": "placeholder",
+    "collision": "box",
+    "size": [4, 2, 0.2],
+    "walkableTopOnly": true
+  },
   "ramp_1x4": {
     "mesh": "placeholder",
     "collision": "ramp",
@@ -64,5 +76,30 @@
     "mesh": "placeholder",
     "collision": "none",
     "size": [2, 2, 2]
+  },
+  "wall_lamp_warm_yellow": {
+    "mesh": "placeholder",
+    "collision": "none",
+    "size": [0.4, 0.25, 0.15]
+  },
+  "wall_lamp_orange": {
+    "mesh": "placeholder",
+    "collision": "none",
+    "size": [0.4, 0.25, 0.15]
+  },
+  "wall_lamp_cold_white": {
+    "mesh": "placeholder",
+    "collision": "none",
+    "size": [0.4, 0.25, 0.15]
+  },
+  "wall_lamp_blue": {
+    "mesh": "placeholder",
+    "collision": "none",
+    "size": [0.4, 0.25, 0.15]
+  },
+  "wall_lamp_purple": {
+    "mesh": "placeholder",
+    "collision": "none",
+    "size": [0.4, 0.25, 0.15]
   }
 }
