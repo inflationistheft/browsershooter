@@ -1,0 +1,15 @@
+{
+  "version": "0.0.1",
+  "services": {
+    "svc:browsershooter-web": {
+      "endpoints": {
+        "tcp:4173": "http://127.0.0.1:4173"
+      }
+    },
+    "svc:browsershooter-ws": {
+      "endpoints": {
+        "tcp:2567": "tcp://127.0.0.1:2567"
+      }
+    }
+  }
+}

@@ -92,9 +92,18 @@ export interface ThirdPersonWeaponOffset {
   scale: number;
 }
 
+const COLYSEUS_PORT = 2567;
+const rawServerUrl = (import.meta as unknown as { env?: { VITE_SERVER_URL?: string } }).env?.VITE_SERVER_URL;
+function defaultServerUrl(): string {
+  if (typeof window !== "undefined" && window.location?.hostname) {
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    return `${protocol}//${window.location.hostname}:${COLYSEUS_PORT}`;
+  }
+  return `ws://localhost:${COLYSEUS_PORT}`;
+}
 export const clientConfig = {
-  /** Server URL for Colyseus (dev) */
-  serverUrl: (import.meta as unknown as { env?: { VITE_SERVER_URL?: string } }).env?.VITE_SERVER_URL ?? "ws://localhost:2567",
+  /** Server URL for Colyseus. With no env set, uses same host as the page and port 2567. */
+  serverUrl: (typeof rawServerUrl === "string" && rawServerUrl.trim() !== "" ? rawServerUrl.trim() : defaultServerUrl()),
 
   /** Room to join: "arena_ffa" or "arena_1v1". Overridden by URL ?room=1v1 or ?room=arena_ffa. */
   roomName: (import.meta as unknown as { env?: { VITE_ARENA_ROOM?: string } }).env?.VITE_ARENA_ROOM ?? "arena_ffa",

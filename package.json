@@ -10,6 +10,12 @@
     "build:server": "npm run build --prefix server",
     "build:shared": "npm run build --prefix shared",
     "build": "npm run build:shared && npm run build:client && npm run build:server",
+    "start:server": "npm run start --prefix server",
+    "preview:client": "npm run preview --prefix client",
+    "prod": "npm run build && concurrently -n server,client -c blue,green \"npm run start:server\" \"sleep 2 && npm run preview:client\"",
+    "start:game": "concurrently -n server,client -c blue,green \"npm run start:server\" \"npm run preview:client\"",
+    "kill-port": "sh -c 'p=$(lsof -ti:2567 2>/dev/null); [ -n \"$p\" ] && kill $p'",
+    "prod:free": "npm run kill-port && npm run prod",
     "editor": "npm run dev --prefix tools/editor"
   },
   "workspaces": [

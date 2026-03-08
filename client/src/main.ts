@@ -641,8 +641,34 @@ if (tunerParam === "1") {
     }
 
     setLoadingMessage("Connecting to server…", 60);
-    netClient.connect(clientConfig.serverUrl);
-    const joined = await netClient.joinOrCreate(roomName);
+    const serverUrl = clientConfig.serverUrl;
+    console.info("[Colyseus] Connecting to", serverUrl);
+    const maxAttempts = 3;
+    let joined = false;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        netClient.connect(serverUrl);
+        joined = await netClient.joinOrCreate(roomName);
+        break;
+      } catch (err) {
+        const isConnectionRefused =
+          err instanceof ProgressEvent && (err.type === "error" || !err.lengthComputable);
+        console.warn("[Colyseus] joinOrCreate failed (attempt " + attempt + "/" + maxAttempts + "):", err);
+        if (attempt < maxAttempts && isConnectionRefused) {
+          setLoadingMessage("Server not ready, retrying in 2s… (" + attempt + "/" + maxAttempts + ")", 60);
+          await new Promise((r) => setTimeout(r, 2000));
+          continue;
+        }
+        const msg = isConnectionRefused
+          ? "Server not reachable (port 2567). Start with: npm run dev or npm run prod"
+          : err instanceof Error
+            ? err.message
+            : String(err);
+        setLoadingMessage(msg, 60);
+        await new Promise((r) => setTimeout(r, 3000));
+        break;
+      }
+    }
     if (!joined) {
       console.warn(`Could not join ${roomName} – playing offline`);
     } else {

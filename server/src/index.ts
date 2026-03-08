@@ -16,6 +16,19 @@ server.define("arena_ffa", ArenaFFARoom);
 server.define("arena_1v1", Arena1v1Room);
 server.define("arena_1v1_ref", Arena1v1RefRoom);
 
-server.listen(serverConfig.port).then(() => {
-  console.log(`Colyseus listening on ws://localhost:${serverConfig.port}`);
-});
+server
+  .listen(serverConfig.port, serverConfig.host)
+  .then(() => {
+    console.log(
+      `Colyseus listening on ws://${serverConfig.host}:${serverConfig.port}`
+    );
+  })
+  .catch((err: NodeJS.ErrnoException) => {
+    if (err.code === "EADDRINUSE") {
+      console.error(
+        `Port ${serverConfig.port} is already in use. Stop the other process (e.g. previous npm run dev) or use PORT=2568 npm run start:server`
+      );
+      console.error("To free the port: lsof -ti:2567 | xargs kill");
+    }
+    throw err;
+  });

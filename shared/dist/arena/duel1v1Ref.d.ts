@@ -10,7 +10,7 @@ export interface Duel1v1RefSpawnPoint {
     position: [number, number, number];
     rotation: number;
 }
-/** Spawn points from the reference JSON (all on upper level y≈6.2). */
+/** Spawn points (placed via shoot-helper: upper y≈6.2, main y≈0.2, lower y≈-5.8). */
 export declare function getDuel1v1RefSpawnPoints(): Duel1v1RefSpawnPoint[];
 export declare const DUEL_1V1_REF_HALF_X = 22;
 export declare const DUEL_1V1_REF_HALF_Z = 20;

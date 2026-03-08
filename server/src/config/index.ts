@@ -1,11 +1,14 @@
 import { TICK_RATE, TICK_MS } from "shared";
 
 const PORT = Number(process.env.PORT) || 2567;
+/** Bind address: use "0.0.0.0" for Tailscale/LAN (accept external connections). */
+const HOST = process.env.HOST ?? "0.0.0.0";
 const ARENA_MAP_PATH =
   process.env.ARENA_MAP_PATH || "maps/arena_blockout.json";
 
 export const serverConfig = {
   port: PORT,
+  host: HOST,
   tickRate: TICK_RATE,
   tickMs: TICK_MS,
   arenaMapPath: ARENA_MAP_PATH,

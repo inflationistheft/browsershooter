@@ -100,49 +100,54 @@ export class LocalPlayerTickSystem implements TickSystem {
     );
     camera.setRotation(snap.yaw, snap.pitch);
     const room = netClient.getRoom();
-    if (room) {
-      const localPlayer = room.state.players.get(room.sessionId);
-      if (localPlayer) {
-        if (
-          state.lastLocalHealth !== null &&
-          state.lastLocalHealth <= 0 &&
-          localPlayer.health > 0
-        ) {
-          remotePlayerSync.syncLocalSpawnFromServer(room);
-          const respawnSnap = movement.getSnapshot();
-          state.currentEyeHeight = respawnSnap.crouching
-            ? CROUCH_EYE_HEIGHT
-            : PLAYER_EYE_HEIGHT;
-          camera.setTargetPosition(
-            respawnSnap.position.x,
-            respawnSnap.position.y + state.currentEyeHeight,
-            respawnSnap.position.z
-          );
-          camera.setRotation(respawnSnap.yaw, respawnSnap.pitch);
-          camera.snapToTarget();
-          state.localRespawnNoLerpTime = 0.3;
-        }
-        state.lastLocalHealth = localPlayer.health;
-        const ammo = localPlayer.ammo;
-        const maxAmmo = localPlayer.maxAmmo;
-        const infiniteAmmo = state.debugMode;
-        if (
-          inputState.reload &&
-          ammo < maxAmmo &&
-          state.clientReloadTicks <= 0
-        )
-          state.clientReloadTicks = RELOAD_TICKS;
-        const canShoot =
-          inputState.shoot &&
-          (ammo > 0 || infiniteAmmo) &&
-          state.clientReloadTicks <= 0 &&
-          state.clientShootCooldownTicks <= 0 &&
-          localPlayer.health > 0;
-        if (canShoot) {
-          state.shotThisFrame = true;
-          state.clientShootCooldownTicks = SHOT_INTERVAL_TICKS;
-        }
+    const localPlayer = room?.state.players.get(room.sessionId) ?? null;
+    if (localPlayer) {
+      if (
+        state.lastLocalHealth !== null &&
+        state.lastLocalHealth <= 0 &&
+        localPlayer.health > 0
+      ) {
+        remotePlayerSync.syncLocalSpawnFromServer(room!);
+        const respawnSnap = movement.getSnapshot();
+        state.currentEyeHeight = respawnSnap.crouching
+          ? CROUCH_EYE_HEIGHT
+          : PLAYER_EYE_HEIGHT;
+        camera.setTargetPosition(
+          respawnSnap.position.x,
+          respawnSnap.position.y + state.currentEyeHeight,
+          respawnSnap.position.z
+        );
+        camera.setRotation(respawnSnap.yaw, respawnSnap.pitch);
+        camera.snapToTarget();
+        state.localRespawnNoLerpTime = 0.3;
       }
+      state.lastLocalHealth = localPlayer.health;
+      const ammo = localPlayer.ammo;
+      const maxAmmo = localPlayer.maxAmmo;
+      const infiniteAmmo = state.debugMode;
+      if (
+        inputState.reload &&
+        ammo < maxAmmo &&
+        state.clientReloadTicks <= 0
+      )
+        state.clientReloadTicks = RELOAD_TICKS;
+      const canShoot =
+        inputState.shoot &&
+        (ammo > 0 || infiniteAmmo) &&
+        state.clientReloadTicks <= 0 &&
+        state.clientShootCooldownTicks <= 0 &&
+        localPlayer.health > 0;
+      if (canShoot) {
+        state.shotThisFrame = true;
+        state.clientShootCooldownTicks = SHOT_INTERVAL_TICKS;
+      }
+    } else if (
+      inputState.shoot &&
+      state.clientShootCooldownTicks <= 0
+    ) {
+      // No room or local player yet: still drive local shoot feedback (animation, muzzle, tracer) so click always feels responsive
+      state.shotThisFrame = true;
+      state.clientShootCooldownTicks = SHOT_INTERVAL_TICKS;
     }
     input.tick();
   }
