@@ -240,6 +240,28 @@ export function createSettingsMenu(
   tracerRow.appendChild(tracerCheckbox);
   perfForm.appendChild(tracerRow);
 
+  const lampsRow = document.createElement("div");
+  lampsRow.style.cssText = `
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  `;
+  const lampsLabel = document.createElement("div");
+  lampsLabel.textContent = "Arena lamps (1v1 / 1v1 Ref)";
+  lampsLabel.style.cssText = `
+    font-size: 14px;
+    color: #c7e3ff;
+  `;
+  const lampsCheckbox = document.createElement("input");
+  lampsCheckbox.type = "checkbox";
+  lampsCheckbox.style.cssText = `
+    width: 16px;
+    height: 16px;
+  `;
+  lampsRow.appendChild(lampsLabel);
+  lampsRow.appendChild(lampsCheckbox);
+  perfForm.appendChild(lampsRow);
+
   const applyRow = document.createElement("div");
   applyRow.style.cssText = `
     display: flex;
@@ -265,6 +287,7 @@ export function createSettingsMenu(
       renderScale: scale,
       aaEnabled: aaCheckbox.checked,
       bulletTracersEnabled: tracerCheckbox.checked,
+      duelLampsEnabled: lampsCheckbox.checked,
     };
     callbacks.onApplyPerformance(perf);
     showStatus("Performance changes applied");
@@ -377,6 +400,10 @@ export function createSettingsMenu(
     tracerCheckbox.checked =
       typeof currentPerf.bulletTracersEnabled === "boolean"
         ? currentPerf.bulletTracersEnabled
+        : true;
+    lampsCheckbox.checked =
+      typeof currentPerf.duelLampsEnabled === "boolean"
+        ? currentPerf.duelLampsEnabled
         : true;
 
     const input = getInputSettings();

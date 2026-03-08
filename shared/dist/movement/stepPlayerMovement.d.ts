@@ -57,7 +57,8 @@ export declare function tickMovementTimers(ext: MovementExtState, dt: number): v
 /**
  * Single tick of movement. Mutates state in place.
  * Call tickMovementTimers on ext before this each tick.
+ * playerHeight: used so head hits ceiling (state.y = feet; head at state.y + playerHeight).
  */
-export declare function stepPlayerMovement(state: MovementStepState, input: MovementStepInput, dt: number, playerRadius: number, staticWorld?: StaticWorld): void;
+export declare function stepPlayerMovement(state: MovementStepState, input: MovementStepInput, dt: number, playerRadius: number, playerHeight: number, staticWorld?: StaticWorld): void;
 export { createDefaultExt };
 //# sourceMappingURL=stepPlayerMovement.d.ts.map

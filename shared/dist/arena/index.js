@@ -96,3 +96,5 @@ export function rayArenaIntersection(ox, oy, oz, dx, dy, dz, maxT) {
     }
     return bestT !== null ? { hit: true, t: bestT } : { hit: false };
 }
+export { buildDuel1v1StaticWorld, getDuel1v1SpawnPoints, DUEL_1V1_HALF, DUEL_1V1_SIZE, } from "./duel1v1.js";
+export { buildDuel1v1RefStaticWorld, getDuel1v1RefSpawnPoints, DUEL_1V1_REF_HALF_X, DUEL_1V1_REF_HALF_Z, DUEL_1V1_REF_SIZE_X, DUEL_1V1_REF_SIZE_Z, } from "./duel1v1Ref.js";

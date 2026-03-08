@@ -26,11 +26,15 @@
     - `StaticWorld { blocks: StaticBlockCollider[] }` mit AABBs (min/max X/Y/Z) und optional:
       - `walkableTopOnly: boolean` – nur Oberseite begehbar (z.B. Wände, Ledges).
       - `rampAxis: "x" | "z"`, `rampInverted: boolean` – für Rampen.
+  - **Vertikale Kollision (Boden/Decke) – verbindliche Regel:** Siehe **`docs/horizontal-surfaces-collision.md`**. Kurz: Kein Snapping, keine relative Flächenwahl (`py`). Flächen sind von beiden Seiten solide; Treffer beim vertikalen Schritt über `getSurfaceHeightsAt` + `getSurfaceHit` + ggf. `getHighestSurfaceAtOrBelow`. Immer so umsetzen.
   - Funktionen:
-    - `buildStaticWorldFromMap(map, prefabDefs)` – baut `StaticWorld` aus `MapData` + Prefab-Definitionen.
-    - `getGroundYAt(px, pz, world, margin, py?)` – Bodenhöhe an einer Position.
+    - `getSurfaceHeightsAt(px, pz, world, margin)` – alle horizontalen Flächenhöhen an (x,z).
+    - `getSurfaceHit(yFrom, yTo, surfaces)` – welche Fläche wird beim Weg von yFrom nach yTo getroffen (Landung oder Decke).
+    - `getHighestSurfaceAtOrBelow(y, surfaces)` – „Boden unter den Füßen“ für State/Korrektur.
+    - `getGroundYAt(px, pz, world, margin, py?)` – bleibt u.a. für Rampen-Gradient; vertikale Bewegung nutzt die Surface-APIs.
     - `isOnRamp(px, pz, world, radius, py)` – prüft, ob sich der Spieler auf einer Rampe befindet.
     - `resolveStaticWorldXZ(x, y, z, radius, world)` – löst Kollision in XZ‑Ebene gegen Blocks.
+    - `buildStaticWorldFromMap(map, prefabDefs)` – baut `StaticWorld` aus `MapData` + Prefab-Definitionen.
     - `rayStaticWorldIntersection` – einfache Raycasts gegen die Block-Geometrie.
 
 - **Tuning**
@@ -72,13 +76,17 @@
     - verarbeitet Dash-Phase,
     - steuert Grounded/Sliding/Airborne‑Zustand (inkl. Rampen, Slide‑Enter/Exit, Slide‑Jump),
     - integriert Schwerkraft und Velocity,
-    - snappt auf Boden (`getGroundYAt`) und löst Wand-Kollisionen (`resolveStaticWorldXZ` + `applyWallVelocitySlide`),
+    - vertikale Kollision über Flächen-Treffer (`getSurfaceHeightsAt`, `getSurfaceHit`, `getHighestSurfaceAtOrBelow`) – siehe `docs/horizontal-surfaces-collision.md`; kein Snapping,
+    - löst Wand-Kollisionen (`resolveStaticWorldXZ` + `applyWallVelocitySlide`),
     - behandelt Wallbounce (Reflexion + Boost) in der Airborne‑Phase.
 - Ausgabe:
   - Aktualisiertes `MovementStepState` für nächsten Tick.
   - Auf Client zusätzlich `MovementSnapshot` für Kamera & Viewmodel.
 
 ### Wichtig für zukünftige Änderungen
+
+- **Horizontale Flächen / Boden-Decke (verbindlich)**
+  - Änderungen an vertikaler Kollision (Boden, Decke, Fall-through, Snapping) müssen der Festlegung in **`docs/horizontal-surfaces-collision.md`** folgen: solide Flächen von beiden Seiten, Treffer über `getSurfaceHit`, kein Snapping, keine relative Flächenwahl.
 
 - **Determinismus**
   - `stepPlayerMovement` und `StaticWorld` sollten **keine** I/O‑Side‑Effects enthalten (keine `fetch`/Logging-Aufrufe im Hot‑Path).

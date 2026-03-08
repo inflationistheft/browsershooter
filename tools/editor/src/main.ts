@@ -10,6 +10,7 @@ import { mergeGeometries, mergeVertices } from "three/examples/jsm/utils/BufferG
 import {
   stepPlayerMovement,
   tickMovementTimers,
+  PLAYER_HEIGHT,
   PLAYER_RADIUS,
   PLAYER_EYE_HEIGHT,
   CROUCH_EYE_HEIGHT,
@@ -654,13 +655,13 @@ function getPrefabColor(id: PrefabId): number {
 /** Floor thickness = ramp flat base; wedge is only the slope part so visual is flush with floor. */
 const RAMP_VISUAL_BASE = 0.2;
 
-/** Wedge geometry: slope along +Z (low at -Z, high at +Z). Uses height - RAMP_VISUAL_BASE for the slope so when offset up, bottom aligns with floor top. */
+/** Wedge geometry: slope along +Z (low at -Z, high at +Z). Bottom (yLo) at 0 so placement.y = floor. */
 function createRampWedgeGeometry(width: number, height: number, depth: number): THREE.BufferGeometry {
   const hw = width / 2;
   const hd = depth / 2;
   const slopeHeight = Math.max(0.01, height - RAMP_VISUAL_BASE);
-  const yLo = -slopeHeight / 2;
-  const yHi = slopeHeight / 2;
+  const yLo = 0;
+  const yHi = slopeHeight;
   const vertices = new Float32Array([
     -hw, yLo, -hd, hw, yLo, -hd, hw, yLo, hd, -hw, yLo, hd,
     -hw, yLo, -hd, hw, yLo, -hd, hw, yHi, hd, -hw, yHi, hd,
@@ -789,10 +790,9 @@ function buildMergedRampMeshes(instances: EditorPrefabInstance[]): THREE.Mesh[] 
     for (const p of run) {
       const geo = createRampWedgeGeometry(size[0], size[1], size[2]).clone();
       const [x, y, z] = p.position;
-      const rampYOffset = RAMP_VISUAL_BASE / 2;
       matrix.identity();
       matrix.makeRotationY(THREE.MathUtils.degToRad(p.rotation));
-      matrix.setPosition(x, y + rampYOffset, z);
+      matrix.setPosition(x, y, z);
       const posAttr = geo.getAttribute("position") as THREE.BufferAttribute;
       for (let i = 0; i < posAttr.count; i++) {
         position.fromBufferAttribute(posAttr, i);
@@ -807,7 +807,7 @@ function buildMergedRampMeshes(instances: EditorPrefabInstance[]): THREE.Mesh[] 
     const merged = mergeGeometries(geometries, false);
     geometries.forEach((g) => g.dispose());
     if (!merged) continue;
-    const welded = mergeVertices(merged, 1e-4);
+    const welded = mergeVertices(merged, 1e-3);
     merged.dispose();
     welded.computeVertexNormals();
     const mat = new THREE.MeshStandardMaterial({ color });
@@ -1960,7 +1960,7 @@ function updatePlayer(dt: number): void {
     yaw: playerYaw,
     pitch: playerPitch,
   };
-  stepPlayerMovement(playerState, input, dt, PLAYER_RADIUS, editorStaticWorld);
+  stepPlayerMovement(playerState, input, dt, PLAYER_RADIUS, PLAYER_HEIGHT, editorStaticWorld);
 
   // Fell through void (no prefab under): put back on nearest surface
   if (editorStaticWorld && playerState.y < -100) {

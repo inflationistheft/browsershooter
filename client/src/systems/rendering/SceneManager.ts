@@ -14,6 +14,8 @@ export class SceneManager {
   readonly scene = new THREE.Scene();
   readonly renderer: THREE.WebGLRenderer;
   private readonly floor: THREE.Mesh;
+  private readonly gridHelper: THREE.GridHelper;
+  private readonly defaultWalls: THREE.Mesh[] = [];
   private mapGroup: THREE.Group | null = null;
   private renderScale = 1;
 
@@ -42,9 +44,9 @@ export class SceneManager {
     this.floor = new THREE.Mesh(floorGeo, floorMat);
     this.floor.rotation.x = -Math.PI / 2;
     this.scene.add(this.floor);
-    const gridHelper = new THREE.GridHelper(ARENA_SIZE, ARENA_SIZE, 0x8a8a94, 0xa8a8b0);
-    gridHelper.position.y = 0.001;
-    this.scene.add(gridHelper);
+    this.gridHelper = new THREE.GridHelper(ARENA_SIZE, ARENA_SIZE, 0x8a8a94, 0xa8a8b0);
+    this.gridHelper.position.y = 0.001;
+    this.scene.add(this.gridHelper);
 
     // Simple walls (test arena) – positions from shared arena
     const wallGeo = new THREE.BoxGeometry(ARENA_SIZE, 4, 0.5);
@@ -53,6 +55,7 @@ export class SceneManager {
       const w = new THREE.Mesh(wallGeo, wallMat);
       w.position.set(x, 2, z);
       if (z === 0) w.rotation.y = Math.PI / 2;
+      this.defaultWalls.push(w);
       this.scene.add(w);
     }
 
@@ -120,6 +123,13 @@ export class SceneManager {
     if (this.mapGroup) {
       this.scene.add(this.mapGroup);
     }
+  }
+
+  /** Show/hide the default arena (floor + 4 walls + grid). Use false when a custom map or duel arena is set. */
+  setDefaultArenaVisible(visible: boolean): void {
+    this.floor.visible = visible;
+    this.gridHelper.visible = visible;
+    this.defaultWalls.forEach((w) => (w.visible = visible));
   }
 
   setPerformance(perf: { renderScale: number; aaEnabled: boolean }): void {

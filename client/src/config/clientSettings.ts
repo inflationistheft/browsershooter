@@ -2,6 +2,7 @@ export interface PerformanceSettings {
   renderScale: number;
   aaEnabled: boolean;
   bulletTracersEnabled: boolean;
+  duelLampsEnabled: boolean;
 }
 
 const STORAGE_KEY = "browsershooter:performanceSettings";
@@ -10,11 +11,11 @@ let currentPerformance: PerformanceSettings = loadInitial();
 
 function loadInitial(): PerformanceSettings {
   if (typeof window === "undefined") {
-    return { renderScale: 1, aaEnabled: false, bulletTracersEnabled: true };
+    return { renderScale: 1, aaEnabled: false, bulletTracersEnabled: true, duelLampsEnabled: true };
   }
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { renderScale: 1, aaEnabled: false, bulletTracersEnabled: true };
+    if (!raw) return { renderScale: 1, aaEnabled: false, bulletTracersEnabled: true, duelLampsEnabled: true };
     const parsed = JSON.parse(raw) as Partial<PerformanceSettings> | null;
     const scale =
       parsed && typeof parsed.renderScale === "number" && parsed.renderScale > 0
@@ -25,9 +26,13 @@ function loadInitial(): PerformanceSettings {
       parsed && typeof parsed.bulletTracersEnabled === "boolean"
         ? parsed.bulletTracersEnabled
         : true;
-    return { renderScale: scale, aaEnabled: aa, bulletTracersEnabled: tracers };
+    const lamps =
+      parsed && typeof parsed.duelLampsEnabled === "boolean"
+        ? parsed.duelLampsEnabled
+        : true;
+    return { renderScale: scale, aaEnabled: aa, bulletTracersEnabled: tracers, duelLampsEnabled: lamps };
   } catch {
-    return { renderScale: 1, aaEnabled: false, bulletTracersEnabled: true };
+    return { renderScale: 1, aaEnabled: false, bulletTracersEnabled: true, duelLampsEnabled: true };
   }
 }
 
@@ -51,6 +56,8 @@ export function applyPerformanceSettings(next: PerformanceSettings): void {
     aaEnabled: !!next.aaEnabled,
     bulletTracersEnabled:
       typeof next.bulletTracersEnabled === "boolean" ? next.bulletTracersEnabled : true,
+    duelLampsEnabled:
+      typeof next.duelLampsEnabled === "boolean" ? next.duelLampsEnabled : true,
   };
   currentPerformance = normalized;
   persistPerformance(normalized);

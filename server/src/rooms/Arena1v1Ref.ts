@@ -1,5 +1,5 @@
 /**
- * FFA Arena room: tick loop, state sync, placeholder movement.
+ * 1v1 Duel "reference" room: layout from 1v1spawns.json in code (floor + walls only, no ramps).
  */
 
 import { Room, Client } from "@colyseus/core";
@@ -35,72 +35,42 @@ import {
   tickMovementTimers,
   resolvePlayerCollisions,
   rayStaticWorldIntersection,
-  buildStaticWorldFromMap,
-  buildKillVolumesFromMap,
+  buildDuel1v1RefStaticWorld,
+  getDuel1v1RefSpawnPoints,
   isPointInsideAabb,
   type StaticWorld,
   type StaticBlockCollider,
-  type MapData,
   type MapSpawnPoint,
 } from "shared";
 import type { PlayerInput, KillEventPayload, WeaponId } from "shared";
 import { ArenaState, PlayerStateSchema } from "shared";
 import { serverConfig } from "../config/index.js";
-import { readFileSync } from "node:fs";
-import { resolve as resolvePath } from "node:path";
-import prefabDefsJson from "shared/src/data/prefabDefs.json" with { type: "json" };
-
-type PrefabDef = {
-  mesh: string;
-  collision: "box" | "trimesh" | "ramp" | "none";
-  size: [number, number, number];
-};
-
-const prefabDefs = prefabDefsJson as unknown as Record<string, PrefabDef | undefined>;
 import {
   type PlayerExtendedState,
   createPlayerExtendedState,
 } from "../PlayerExtendedState.js";
 
-export class ArenaFFARoom extends Room<ArenaState> {
+export class Arena1v1RefRoom extends Room<ArenaState> {
   private playerExt = new Map<string, PlayerExtendedState>();
   private staticWorld: StaticWorld | undefined;
   private spawnPoints: MapSpawnPoint[] = [];
   private killVolumes: StaticBlockCollider[] = [];
+
   onCreate(): void {
-    this.loadMap();
+    this.staticWorld = buildDuel1v1RefStaticWorld();
+    this.spawnPoints = getDuel1v1RefSpawnPoints().map((sp, i) => ({
+      team: i,
+      position: sp.position,
+      rotation: sp.rotation,
+    }));
+    this.killVolumes = [];
+    console.log(
+      `[Arena1v1Ref] Duel ref arena ready with ${this.spawnPoints.length} spawn points.`
+    );
     this.setState(new ArenaState());
     this.setSimulationInterval((dt) => this.tick(dt), serverConfig.tickMs);
     this.onMessage("input", (client, message) => this.onInput(client, message));
     this.onMessage("ping", (client, message) => client.send("pong", message));
-  }
-
-  private loadMap(): void {
-    try {
-      const mapPath = resolvePath(process.cwd(), serverConfig.arenaMapPath);
-      const raw = readFileSync(mapPath, "utf-8");
-      const data = JSON.parse(raw) as MapData;
-      this.staticWorld = buildStaticWorldFromMap(data, prefabDefs);
-      this.killVolumes = buildKillVolumesFromMap(data, prefabDefs);
-      this.spawnPoints = Array.isArray(data.spawnPoints) ? data.spawnPoints.slice() : [];
-      if (this.spawnPoints.length === 0) {
-        console.warn(
-          `[ArenaFFA] Map ${mapPath} has no spawnPoints; falling back to built-in offsets.`
-        );
-      } else {
-        console.log(
-          `[ArenaFFA] Loaded map ${mapPath} with ${this.spawnPoints.length} spawn points.`
-        );
-      }
-    } catch (err) {
-      console.warn(
-        "[ArenaFFA] Failed to load map JSON; using analytic arena & fallback spawns.",
-        err
-      );
-      this.staticWorld = undefined;
-      this.spawnPoints = [];
-      this.killVolumes = [];
-    }
   }
 
   private pickSpawn(): { x: number; y: number; z: number } {
@@ -110,27 +80,13 @@ export class ArenaFFARoom extends Room<ArenaState> {
       const [sx, sy, sz] = sp.position;
       return { x: sx, y: sy, z: sz };
     }
-    const idx = Math.floor(Math.random() * ArenaFFARoom.SPAWN_OFFSETS.length);
-    const [sx, sy, sz] = ArenaFFARoom.SPAWN_OFFSETS[idx];
+    const fallbacks: [number, number, number][] = [
+      [-20, 6.2, 2], [-20, 6.2, 18], [20, 6.2, -13], [19, 6.2, 18],
+    ];
+    const idx = Math.floor(Math.random() * fallbacks.length);
+    const [sx, sy, sz] = fallbacks[idx];
     return { x: sx, y: sy, z: sz };
   }
-
-  /** Spawn offsets (x, y, z). Players spawn at random point on join/respawn. */
-  private static SPAWN_OFFSETS: [number, number, number][] = [
-    [0, 0, 0],
-    [4, 0, 4],
-    [-4, 0, 4],
-    [4, 0, -4],
-    [-4, 0, -4],
-    [6, 0, 0],
-    [-6, 0, 0],
-    [0, 0, 6],
-    [0, 0, -6],
-    [8, 0, 8],
-    [-8, 0, 8],
-    [8, 0, -8],
-    [-8, 0, -8],
-  ];
 
   onJoin(client: Client): void {
     this.playerExt.set(client.sessionId, createPlayerExtendedState());
@@ -149,7 +105,7 @@ export class ArenaFFARoom extends Room<ArenaState> {
     state.maxAmmo = 30;
     this.state.players.set(client.sessionId, state);
     console.log(
-      `[ArenaFFA] Client ${client.sessionId} joined. Players in room: ${this.state.players.size}`
+      `[Arena1v1Ref] Client ${client.sessionId} joined. Players in room: ${this.state.players.size}`
     );
   }
 
@@ -157,7 +113,7 @@ export class ArenaFFARoom extends Room<ArenaState> {
     this.playerExt.delete(client.sessionId);
     this.state.players.delete(client.sessionId);
     console.log(
-      `[ArenaFFA] Client ${client.sessionId} left. Players in room: ${this.state.players.size}`
+      `[Arena1v1Ref] Client ${client.sessionId} left. Players in room: ${this.state.players.size}`
     );
   }
 
@@ -339,7 +295,7 @@ export class ArenaFFARoom extends Room<ArenaState> {
         if (lastInput.yaw !== undefined) player.yaw = lastInput.yaw;
         if (lastInput.pitch !== undefined) player.pitch = lastInput.pitch;
 
-        ArenaFFARoom.storeHitboxPositionsIfValid(player, ext, lastInput);
+        Arena1v1RefRoom.storeHitboxPositionsIfValid(player, ext, lastInput);
 
         const hasSlideIntent =
           (lastInput.slide ?? false) || (lastInput.slideIntentTicks ?? 0) > 0;
@@ -395,6 +351,19 @@ export class ArenaFFARoom extends Room<ArenaState> {
         }
       } else {
         player.animationState = "idle";
+      }
+
+      // Kill plane: below y = -20 triggers respawn (e.g. fell off map)
+      const DUEL_REF_KILL_PLANE_Y = -20;
+      if (player.health > 0 && player.y < DUEL_REF_KILL_PLANE_Y) {
+        player.health = 0;
+        ext.respawnTicks = RESPAWN_TICKS;
+        this.broadcastKillEvent({
+          killerId: "",
+          victimId: shooterId,
+          weaponId: "rifle",
+          isHeadshot: false,
+        });
       }
 
       // Kill volume: if player is inside any, treat as death and start respawn
@@ -495,14 +464,14 @@ export class ArenaFFARoom extends Room<ArenaState> {
             }
             if (process.env.DEBUG_HITSCAN) {
               console.log(
-                `[ArenaFFA] Hit: ${shooterId} -> ${hitResult.targetId} (${hitResult.hitboxType})`
+                `[Arena1v1Ref] Hit: ${shooterId} -> ${hitResult.targetId} (${hitResult.hitboxType})`
               );
             }
           }
         } else if (process.env.DEBUG_HITSCAN && this.state.players.size > 1) {
           const otherCount = this.state.players.size - 1;
           console.log(
-            `[ArenaFFA] Shoot miss: ${shooterId} at (${player.x.toFixed(1)},${player.y.toFixed(1)},${player.z.toFixed(1)}) yaw=${player.yaw.toFixed(2)} pitch=${player.pitch.toFixed(2)} (${otherCount} other players)`
+            `[Arena1v1Ref] Shoot miss: ${shooterId} at (${player.x.toFixed(1)},${player.y.toFixed(1)},${player.z.toFixed(1)}) yaw=${player.yaw.toFixed(2)} pitch=${player.pitch.toFixed(2)} (${otherCount} other players)`
           );
         }
       }
@@ -567,11 +536,11 @@ export class ArenaFFARoom extends Room<ArenaState> {
     if (!hasAll) return;
 
     const mag = (a: number, b: number, c: number) => Math.hypot(a, b, c);
-    if (mag(hx!, hy!, hz!) > ArenaFFARoom.HITBOX_OFFSET_MAX) return;
-    if (mag(bcx!, bcy!, bcz!) > ArenaFFARoom.HITBOX_OFFSET_MAX) return;
-    if (mag(stx!, sty!, stz!) > ArenaFFARoom.HITBOX_OFFSET_MAX) return;
-    if (mag(px!, py!, pz!) > ArenaFFARoom.HITBOX_OFFSET_MAX) return;
-    if (mag(fx!, fy!, fz!) > ArenaFFARoom.HITBOX_OFFSET_MAX) return;
+    if (mag(hx!, hy!, hz!) > Arena1v1RefRoom.HITBOX_OFFSET_MAX) return;
+    if (mag(bcx!, bcy!, bcz!) > Arena1v1RefRoom.HITBOX_OFFSET_MAX) return;
+    if (mag(stx!, sty!, stz!) > Arena1v1RefRoom.HITBOX_OFFSET_MAX) return;
+    if (mag(px!, py!, pz!) > Arena1v1RefRoom.HITBOX_OFFSET_MAX) return;
+    if (mag(fx!, fy!, fz!) > Arena1v1RefRoom.HITBOX_OFFSET_MAX) return;
 
     const headYAboveGround = rootY + hy!;
     if (headYAboveGround < 0.5 || headYAboveGround > 3.0) return;
@@ -613,7 +582,7 @@ export class ArenaFFARoom extends Room<ArenaState> {
       ? Math.hypot(scx! - shooter.x, scy! - shooter.y, scz! - shooter.z)
       : Infinity;
     const useShootPos =
-      hasShootPos && shootPosDelta <= ArenaFFARoom.CLIENT_POS_TRUST_RADIUS;
+      hasShootPos && shootPosDelta <= Arena1v1RefRoom.CLIENT_POS_TRUST_RADIUS;
 
     const cx = useShootPos ? scx : lastInput?.clientX;
     const cy = useShootPos ? scy : lastInput?.clientY;
@@ -624,7 +593,7 @@ export class ArenaFFARoom extends Room<ArenaState> {
       ? Math.hypot(cx! - shooter.x, cy! - shooter.y, cz! - shooter.z)
       : Infinity;
     const useClientOrigin =
-      hasClientPos && clientDelta <= ArenaFFARoom.CLIENT_POS_TRUST_RADIUS;
+      hasClientPos && clientDelta <= Arena1v1RefRoom.CLIENT_POS_TRUST_RADIUS;
     // shootClient is already eye position; clientPos/shooter need +eyeHeight
     const ox = useClientOrigin ? cx! : shooter.x;
     const oy = useShootPos
@@ -701,7 +670,7 @@ export class ArenaFFARoom extends Room<ArenaState> {
 
       if (process.env.DEBUG_HITSCAN && !useBoneHitboxes) {
         console.log(
-          `[ArenaFFA] Target ${targetId} using fallback hitboxes (missing bone data)`
+          `[Arena1v1Ref] Target ${targetId} using fallback hitboxes (missing bone data)`
         );
       }
 

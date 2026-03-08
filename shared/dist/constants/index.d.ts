@@ -7,6 +7,8 @@ export declare const TICK_MS: number;
 /** Player height in meters (for collision/rendering). */
 export declare const PLAYER_HEIGHT = 1.8;
 export declare const PLAYER_RADIUS = 0.4;
+/** Extra margin for ground XZ check (on top of PLAYER_RADIUS). Used in movement + debug. */
+export declare const GROUND_CHECK_MARGIN_EXTRA = 0.03;
 /** Eye height in meters (camera offset from feet). */
 export declare const PLAYER_EYE_HEIGHT = 1.6;
 /** Eye height when crouching (camera lower). */

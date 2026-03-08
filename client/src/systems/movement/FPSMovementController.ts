@@ -9,6 +9,7 @@ import {
   movementTuning,
   stepPlayerMovement,
   tickMovementTimers,
+  PLAYER_HEIGHT,
   PLAYER_RADIUS,
   getGroundYAt,
   isOnRamp,
@@ -93,7 +94,7 @@ export class FPSMovementController {
       ext: this.ext,
     };
 
-    stepPlayerMovement(movementState, movementInput, dt, PLAYER_RADIUS, this.staticWorld);
+    stepPlayerMovement(movementState, movementInput, dt, PLAYER_RADIUS, PLAYER_HEIGHT, this.staticWorld);
 
     this.position.x = movementState.x;
     this.position.y = movementState.y;

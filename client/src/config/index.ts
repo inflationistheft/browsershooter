@@ -96,6 +96,9 @@ export const clientConfig = {
   /** Server URL for Colyseus (dev) */
   serverUrl: (import.meta as unknown as { env?: { VITE_SERVER_URL?: string } }).env?.VITE_SERVER_URL ?? "ws://localhost:2567",
 
+  /** Room to join: "arena_ffa" or "arena_1v1". Overridden by URL ?room=1v1 or ?room=arena_ffa. */
+  roomName: (import.meta as unknown as { env?: { VITE_ARENA_ROOM?: string } }).env?.VITE_ARENA_ROOM ?? "arena_ffa",
+
   /** Enable debug overlay */
   debugOverlay: true,
 

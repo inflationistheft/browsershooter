@@ -40,6 +40,8 @@ import {
   PLAYER_EYE_HEIGHT,
   HEAD_HITBOX_HEIGHT,
   PLAYER_HEIGHT,
+  buildDuel1v1StaticWorld,
+  buildDuel1v1RefStaticWorld,
   type KillEventPayload,
   type HitMessagePayload,
   type HitReceivedPayload,
@@ -77,6 +79,173 @@ import {
 import { createKillfeed, handleKillEvent } from "./systems/ui/Killfeed.js";
 import { BulletTracerSystem } from "./game/BulletTracerSystem.js";
 import { BulletImpactSystem } from "./game/BulletImpactSystem.js";
+
+/** Wedge (ramp) geometry: flat bottom, slope along axis. In local space centered at origin. */
+function createRampWedgeGeometry(
+  minX: number, maxX: number, minY: number, maxY: number, minZ: number, maxZ: number,
+  rampAxis: "x" | "z", rampInverted: boolean
+): THREE.BufferGeometry {
+  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2, cz = (minZ + maxZ) / 2;
+  const toLocal = (x: number, y: number, z: number) => [x - cx, y - cy, z - cz];
+  let v0: number[], v1: number[], v2: number[], v3: number[], v4: number[], v5: number[];
+  if (rampAxis === "z") {
+    if (!rampInverted) {
+      v0 = toLocal(minX, minY, minZ); v1 = toLocal(maxX, minY, minZ);
+      v2 = toLocal(maxX, minY, maxZ); v3 = toLocal(minX, minY, maxZ);
+      v4 = toLocal(minX, maxY, maxZ); v5 = toLocal(maxX, maxY, maxZ);
+    } else {
+      v0 = toLocal(minX, maxY, minZ); v1 = toLocal(maxX, maxY, minZ);
+      v2 = toLocal(maxX, minY, maxZ); v3 = toLocal(minX, minY, maxZ);
+      v4 = toLocal(minX, minY, minZ); v5 = toLocal(maxX, minY, minZ);
+    }
+  } else {
+    if (!rampInverted) {
+      v0 = toLocal(minX, minY, minZ); v1 = toLocal(minX, minY, maxZ);
+      v2 = toLocal(maxX, minY, maxZ); v3 = toLocal(maxX, minY, minZ);
+      v4 = toLocal(maxX, maxY, maxZ); v5 = toLocal(maxX, maxY, minZ);
+    } else {
+      v0 = toLocal(maxX, minY, minZ); v1 = toLocal(maxX, minY, maxZ);
+      v2 = toLocal(minX, minY, maxZ); v3 = toLocal(minX, minY, minZ);
+      v4 = toLocal(minX, maxY, maxZ); v5 = toLocal(minX, maxY, minZ);
+    }
+  }
+  const pos = new Float32Array([
+    ...v0, ...v1, ...v2, ...v3, ...v4, ...v5,
+  ]);
+  const idx = new Uint16Array([
+    0, 1, 2, 0, 2, 3, 0, 1, 5, 0, 5, 4, 0, 3, 4, 1, 2, 5, 2, 3, 4, 2, 4, 5,
+  ]);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  geo.setIndex(new THREE.BufferAttribute(idx, 1));
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/** Classify duel arena block from AABB: ramp, ceiling (thin high Y), floor (thin low Y), else wall. */
+function getDuelBlockType(b: {
+  minY: number;
+  maxY: number;
+  rampAxis?: "x" | "z";
+  rampInverted?: boolean;
+}): "floor" | "wall" | "ramp" | "ceiling" {
+  if (b.rampAxis != null && b.rampInverted !== undefined) return "ramp";
+  const thin = b.maxY - b.minY < 0.5;
+  if (thin && b.minY > 4) return "ceiling";
+  if (thin) return "floor";
+  return "wall";
+}
+
+/** Low-poly hull texture: large panels, thin seams, subtle per-panel shade variation (Halo-like). */
+function createArenaHullTexture(options: {
+  baseR: number;
+  baseG: number;
+  baseB: number;
+  panelSize: number;
+  seamR: number;
+  seamG: number;
+  seamB: number;
+  panelShadeVariation: number;
+}): THREE.CanvasTexture {
+  const { baseR, baseG, baseB, panelSize, seamR, seamG, seamB, panelShadeVariation } = options;
+  const size = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  const imageData = ctx.createImageData(size, size);
+  const data = imageData.data;
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const gx = Math.floor(x / panelSize);
+      const gy = Math.floor(y / panelSize);
+      const onSeamX = x % panelSize === 0;
+      const onSeamY = y % panelSize === 0;
+      const isSeam = onSeamX || onSeamY;
+      const shade = (gx + gy) % 2 === 0 ? 1 : 1 - panelShadeVariation;
+      const i = (y * size + x) * 4;
+      if (isSeam) {
+        data[i + 0] = seamR;
+        data[i + 1] = seamG;
+        data[i + 2] = seamB;
+      } else {
+        data[i + 0] = Math.round(Math.max(0, Math.min(255, baseR * shade)));
+        data[i + 1] = Math.round(Math.max(0, Math.min(255, baseG * shade)));
+        data[i + 2] = Math.round(Math.max(0, Math.min(255, baseB * shade)));
+      }
+      data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(imageData, 0, 0);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(1.2, 1.2);
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/** Duel arena materials: low-poly hull, Halo-like sci-fi, subtle texture. */
+function createDuelArenaMaterials(): {
+  floor: THREE.MeshStandardMaterial;
+  wall: THREE.MeshStandardMaterial;
+  ramp: THREE.MeshStandardMaterial;
+  ceiling: THREE.MeshStandardMaterial;
+} {
+  const hullOpts = {
+    panelSize: 64,
+    seamR: 82,
+    seamG: 88,
+    seamB: 98,
+    panelShadeVariation: 0.06,
+  };
+  const floorTex = createArenaHullTexture({
+    ...hullOpts,
+    baseR: 228,
+    baseG: 232,
+    baseB: 240,
+  });
+  const wallTex = createArenaHullTexture({
+    ...hullOpts,
+    baseR: 218,
+    baseG: 224,
+    baseB: 235,
+  });
+  const ceilingTex = createArenaHullTexture({
+    ...hullOpts,
+    baseR: 212,
+    baseG: 218,
+    baseB: 230,
+  });
+
+  const floor = new THREE.MeshStandardMaterial({
+    map: floorTex,
+    color: 0xffffff,
+    roughness: 0.65,
+    metalness: 0.2,
+  });
+  const wall = new THREE.MeshStandardMaterial({
+    map: wallTex,
+    color: 0xffffff,
+    roughness: 0.55,
+    metalness: 0.28,
+  });
+  const ramp = new THREE.MeshStandardMaterial({
+    map: floorTex,
+    color: 0xffffff,
+    roughness: 0.65,
+    metalness: 0.2,
+    side: THREE.DoubleSide,
+  });
+  const ceiling = new THREE.MeshStandardMaterial({
+    map: ceilingTex,
+    color: 0xffffff,
+    roughness: 0.55,
+    metalness: 0.28,
+  });
+  return { floor, wall, ramp, ceiling };
+}
 
 const app = document.getElementById("app");
 if (!app) throw new Error("No #app");
@@ -198,6 +367,7 @@ if (tunerParam === "1") {
   let uiState: UiState = UiState.Playing;
   let pauseMenuHandle: PauseMenuHandle | null = null;
   let settingsMenuHandle: SettingsMenuHandle | null = null;
+  let duelLampsGroup: THREE.Group | null = null;
 
   function setUiState(next: UiState): void {
     uiState = next;
@@ -241,6 +411,7 @@ if (tunerParam === "1") {
           applyPerformanceSettings(perf);
           sceneManager.setPerformance(perf);
           tracerSystem.setEnabled(perf.bulletTracersEnabled);
+          if (duelLampsGroup) duelLampsGroup.visible = perf.duelLampsEnabled;
         },
         onApplyMouse: (inputSettings) => {
           applyInputSettings(inputSettings);
@@ -381,20 +552,99 @@ if (tunerParam === "1") {
   });
 
   initAssets().then(async () => {
-    setLoadingMessage("Loading map…", 55);
-    try {
-      const loaded = await loadMapFromURL("/maps/arena_blockout.json");
-      sceneManager.setMapGroup(loaded.group);
-      movement.setStaticWorld(loaded.staticWorld);
-    } catch (err) {
-      console.warn("Failed to load map JSON, using built-in arena.", err);
+    // Room from URL (?room=arena_1v1 or ?room=1v1) overrides config
+    const urlRoom = typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("room")?.toLowerCase()
+      : null;
+    const roomName =
+      urlRoom === "1v1" || urlRoom === "arena_1v1"
+        ? "arena_1v1"
+        : urlRoom === "1v1_ref" || urlRoom === "arena_1v1_ref"
+          ? "arena_1v1_ref"
+          : urlRoom === "ffa" || urlRoom === "arena_ffa"
+            ? "arena_ffa"
+            : clientConfig.roomName;
+
+    const isDuelRef = roomName === "arena_1v1_ref";
+    const isDuelSmall = roomName === "arena_1v1";
+
+    if (isDuelSmall || isDuelRef) {
+      setLoadingMessage("Loading duel arena…", 55);
+      const duelWorld = isDuelRef ? buildDuel1v1RefStaticWorld() : buildDuel1v1StaticWorld();
+      const duelGroup = new THREE.Group();
+      const mats = createDuelArenaMaterials();
+      for (const b of duelWorld.blocks) {
+        const cx = (b.minX + b.maxX) / 2, cy = (b.minY + b.maxY) / 2, cz = (b.minZ + b.maxZ) / 2;
+        const blockType = getDuelBlockType(b);
+        const isRamp = blockType === "ramp";
+        const geo = isRamp
+          ? createRampWedgeGeometry(
+              b.minX, b.maxX, b.minY, b.maxY, b.minZ, b.maxZ,
+              b.rampAxis!, b.rampInverted!
+            )
+          : new THREE.BoxGeometry(b.maxX - b.minX, b.maxY - b.minY, b.maxZ - b.minZ);
+        const mat =
+          blockType === "ramp"
+            ? mats.ramp
+            : blockType === "floor"
+              ? mats.floor
+              : blockType === "ceiling"
+                ? mats.ceiling
+                : mats.wall;
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(cx, cy, cz);
+        mesh.castShadow = false;
+        mesh.receiveShadow = true;
+        duelGroup.add(mesh);
+      }
+      const lampsGroup = new THREE.Group();
+      const LILA = 0xaa88ff;
+      const duelLampPositions: [number, number, number][] = [
+        [20.490659578661653, 5.65, 18.48239626579279],
+        [17.641128024397815, 5.65, 0.0367070548557625],
+        [18.03684834366855, 5.65, -12.737097335087755],
+        [-0.1407457458905403, 11.65, 7.738486140792297],
+        [3.723808311784971, 11.65, 0.6080742346658519],
+        [-3.7610099774199957, 11.65, 0.618005956039425],
+        [0.1729123650605257, 11.65, -6.62643190136915],
+        [-17.21381269681255, 5.65, -0.2258076396672953],
+        [-19.465686589104074, 5.65, 17.67060638650029],
+        [-18.076036525254224, 5.65, -13.482203455746449],
+        [0.05906777363913374, 4.576719884817777, 19.9],
+        [0.06647359374698025, -1.3213083998510213, -19.9],
+        [0.0262903965857183, 0.9261021268136503, -19.9],
+        [-0.31377494162787073, -0.35, -12.634181531820634],
+        [-0.2925846268465414, -0.35, -2.3106685073100692],
+        [-0.1048362887723721, -0.35, 16.770803853594426],
+      ];
+      for (const [lx, ly, lz] of duelLampPositions) {
+        const lamp = new THREE.PointLight(LILA, 5, 14, 2);
+        lamp.position.set(lx, ly, lz);
+        lampsGroup.add(lamp);
+      }
+      duelGroup.add(lampsGroup);
+      duelLampsGroup = lampsGroup;
+      duelLampsGroup.visible = initialPerf.duelLampsEnabled ?? true;
+      sceneManager.setDefaultArenaVisible(false);
+      sceneManager.setMapGroup(duelGroup);
+      movement.setStaticWorld(duelWorld);
+    } else {
+      setLoadingMessage("Loading map…", 55);
+      try {
+        const loaded = await loadMapFromURL("/maps/arena_blockout.json");
+        sceneManager.setDefaultArenaVisible(false);
+        sceneManager.setMapGroup(loaded.group);
+        movement.setStaticWorld(loaded.staticWorld);
+      } catch (err) {
+        console.warn("Failed to load map JSON, using built-in arena.", err);
+      }
     }
 
     setLoadingMessage("Connecting to server…", 60);
     netClient.connect(clientConfig.serverUrl);
-    const joined = await netClient.joinOrCreate("arena_ffa");
+    const joined = await netClient.joinOrCreate(roomName);
     if (!joined) {
-      console.warn("Could not join arena_ffa – playing offline");
+      console.warn(`Could not join ${roomName} – playing offline`);
     } else {
       setLoadingMessage("Joining arena…", 85);
       const room = netClient.getRoom();

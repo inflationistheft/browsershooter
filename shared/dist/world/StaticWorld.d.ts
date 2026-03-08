@@ -27,6 +27,14 @@ type PrefabDefsLike = Record<string, PrefabDefLike | undefined>;
 export declare function buildKillVolumesFromMap(map: MapData, prefabDefs: PrefabDefsLike): StaticBlockCollider[];
 export declare function isPointInsideAabb(px: number, py: number, pz: number, b: StaticBlockCollider): boolean;
 export declare function buildStaticWorldFromMap(map: MapData, prefabDefs: PrefabDefsLike): StaticWorld;
+/** All horizontal surface heights at (px, pz): top and bottom of each block. Solid from both sides – no falling through, no jumping through.
+ * Ramps: included over full XZ footprint (no axis seam skip) so we never fall through at ramp edges. */
+export declare function getSurfaceHeightsAt(px: number, pz: number, world: StaticWorld, margin?: number): number[];
+/** Surface height hit when moving from yFrom to yTo, or null if none crossed. Solid from both sides.
+ * Excludes the surface we start on: when going up only surfaces strictly above yFrom; when going down only strictly below yFrom. */
+export declare function getSurfaceHit(yFrom: number, yTo: number, surfaces: number[]): number | null;
+/** Highest surface at or below y (for "floor under feet" when correcting small penetration). */
+export declare function getHighestSurfaceAtOrBelow(y: number, surfaces: number[]): number | null;
 /** Top Y of the highest block that contains (px, pz) in XZ. Same logic for floor (box) and ramp (slope): if (px,pz) is inside the block's XZ bounds, return the surface Y there. Returns -Infinity if no block.
  * When only one block contains (px,pz): return its topY (so adjacent ramp segments never yield -Infinity at the seam).
  * When multiple blocks overlap: only consider surfaces with topY <= py + RAMP_CONTINUITY_TOLERANCE so we don't snap up to a higher overlapping ramp.

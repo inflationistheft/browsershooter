@@ -265,6 +265,67 @@ function isInsideRampAxis(b: StaticBlockCollider, px: number, pz: number): boole
   return p >= axisMin - RAMP_AXIS_SEAM && p <= axisMax + RAMP_AXIS_SEAM;
 }
 
+/** Epsilon to merge nearly identical surface heights (avoids overlapping/duplicate surfaces from ramps and tiles). */
+const SURFACE_DEDUP_EPS = 0.02;
+
+/** All horizontal surface heights at (px, pz): top and bottom of each block. Solid from both sides – no falling through, no jumping through.
+ * Ramps: included over full XZ footprint (no axis seam skip) so we never fall through at ramp edges. */
+export function getSurfaceHeightsAt(
+  px: number,
+  pz: number,
+  world: StaticWorld,
+  margin: number = 0
+): number[] {
+  const out: number[] = [];
+  for (const b of world.blocks) {
+    if (
+      px < b.minX - margin ||
+      px > b.maxX + margin ||
+      pz < b.minZ - margin ||
+      pz > b.maxZ + margin
+    )
+      continue;
+    out.push(b.minY);
+    out.push(getBlockTopYAt(b, px, pz));
+  }
+  if (out.length <= 1) return out;
+  out.sort((a, b) => a - b);
+  const deduped: number[] = [out[0]!];
+  for (let i = 1; i < out.length; i++) {
+    const v = out[i]!;
+    if (v - deduped[deduped.length - 1]! > SURFACE_DEDUP_EPS) deduped.push(v);
+  }
+  return deduped;
+}
+
+/** Surface height hit when moving from yFrom to yTo, or null if none crossed. Solid from both sides.
+ * Excludes the surface we start on: when going up only surfaces strictly above yFrom; when going down only strictly below yFrom. */
+export function getSurfaceHit(
+  yFrom: number,
+  yTo: number,
+  surfaces: number[]
+): number | null {
+  if (surfaces.length === 0) return null;
+  if (yTo < yFrom) {
+    const between = surfaces.filter((s) => s >= yTo && s < yFrom);
+    if (between.length === 0) return null;
+    return Math.max(...between);
+  }
+  if (yTo > yFrom) {
+    const between = surfaces.filter((s) => s > yFrom && s <= yTo);
+    if (between.length === 0) return null;
+    return Math.min(...between);
+  }
+  return null;
+}
+
+/** Highest surface at or below y (for "floor under feet" when correcting small penetration). */
+export function getHighestSurfaceAtOrBelow(y: number, surfaces: number[]): number | null {
+  const atOrBelow = surfaces.filter((s) => s <= y);
+  if (atOrBelow.length === 0) return null;
+  return Math.max(...atOrBelow);
+}
+
 /** Top Y of the highest block that contains (px, pz) in XZ. Same logic for floor (box) and ramp (slope): if (px,pz) is inside the block's XZ bounds, return the surface Y there. Returns -Infinity if no block.
  * When only one block contains (px,pz): return its topY (so adjacent ramp segments never yield -Infinity at the seam).
  * When multiple blocks overlap: only consider surfaces with topY <= py + RAMP_CONTINUITY_TOLERANCE so we don't snap up to a higher overlapping ramp.
@@ -286,9 +347,9 @@ export function getGroundYAt(
     )
       continue;
     if (b.rampAxis && !isInsideRampAxis(b, px, pz)) continue;
-    if (b.walkableTopOnly && py !== undefined) {
-      const blockTop = getBlockTopYAt(b, px, pz);
-      if (py < blockTop - margin) continue;
+    // walkableTopOnly for boxes only: skip when below block. Ramps (rampAxis) are never filtered – treat as simple sloped floor so landing never fails.
+    if (b.walkableTopOnly && !b.rampAxis && py !== undefined) {
+      if (py < b.minY - margin) continue;
     }
     const topY = getBlockTopYAt(b, px, pz);
     candidates.push(topY);
@@ -321,9 +382,8 @@ export function isOnRamp(
     )
       continue;
     if (b.rampAxis && !isInsideRampAxis(b, px, pz)) continue;
-    if (b.walkableTopOnly && py !== undefined) {
-      const blockTop = getBlockTopYAt(b, px, pz);
-      if (py < blockTop - margin) continue;
+    if (b.walkableTopOnly && !b.rampAxis && py !== undefined) {
+      if (py < b.minY - margin) continue;
     }
     const topY = getBlockTopYAt(b, px, pz);
     pairs.push({ b, topY });

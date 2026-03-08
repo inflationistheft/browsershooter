@@ -3,15 +3,19 @@
  * Used by client (FPSMovementController) and server (ArenaFFA) for deterministic physics.
  */
 import { movementTuning } from "../tuning/movement.js";
+import { GROUND_CHECK_MARGIN_EXTRA } from "../constants/index.js";
 import { resolveArenaWalls, applyWallVelocitySlide } from "../arena/index.js";
-import { resolveStaticWorldXZ, getGroundYAt, isOnRamp } from "../world/StaticWorld.js";
+import { resolveStaticWorldXZ, getGroundYAt, isOnRamp, getSurfaceHeightsAt, getSurfaceHit, getHighestSurfaceAtOrBelow, } from "../world/StaticWorld.js";
 const GROUND_Y = 0;
 /** Max height above ground to still count as grounded (ramp step-down, float tolerance). */
 const GROUND_SNAP_TOLERANCE = 0.15;
 /** Epsilon for finite-difference gradient of ground (ramp slope). */
 const GROUND_GRAD_EPS = 0.05;
-function groundYAt(x, z, staticWorld, margin = 0, py) {
-    return staticWorld ? getGroundYAt(x, z, staticWorld, margin, py) : GROUND_Y;
+/** Surfaces at (x,z) for solid horizontal collision; default arena = single floor at GROUND_Y. */
+function surfacesAt(x, z, staticWorld, margin) {
+    return staticWorld
+        ? getSurfaceHeightsAt(x, z, staticWorld, margin)
+        : [GROUND_Y];
 }
 /** Ground gradient (dY/dx, dY/dz) at (x,z) for slope-aware ramp slide. Returns null if no valid ground. */
 function groundGradientAt(x, z, staticWorld, margin, py) {
@@ -58,10 +62,12 @@ export function tickMovementTimers(ext, dt) {
 /**
  * Single tick of movement. Mutates state in place.
  * Call tickMovementTimers on ext before this each tick.
+ * playerHeight: used so head hits ceiling (state.y = feet; head at state.y + playerHeight).
  */
-export function stepPlayerMovement(state, input, dt, playerRadius, staticWorld) {
+export function stepPlayerMovement(state, input, dt, playerRadius, playerHeight, staticWorld) {
     const t = movementTuning;
     const ext = state.ext;
+    const groundMargin = playerRadius + GROUND_CHECK_MARGIN_EXTRA;
     const jumpPressedThisFrame = input.jumpHeld && !ext.lastJumpHeld;
     ext.lastJumpHeld = input.jumpHeld;
     const hadSlideIntentLastFrame = ext.lastHasSlideIntent;
@@ -99,19 +105,27 @@ export function stepPlayerMovement(state, input, dt, playerRadius, staticWorld) 
             ext.lastDashDirZ = dz;
         }
     }
-    // Dash phase: constant horizontal speed, gravity, no friction
+    // Dash phase: solid surfaces – hit floor or ceiling, no fall-through
     if (ext.dashActiveTimer > 0) {
         ext.dashActiveTimer -= dt;
         state.vy -= t.gravity * dt;
         state.vy = Math.max(state.vy, -t.maxFallSpeed);
         state.x += state.vx * dt;
-        state.y += state.vy * dt;
+        const yDashCandidate = state.y + state.vy * dt;
         state.z += state.vz * dt;
-        const gY = groundYAt(state.x, state.z, staticWorld, playerRadius, state.y);
-        if (Number.isFinite(gY) && state.y <= gY + GROUND_SNAP_TOLERANCE) {
-            state.y = gY;
-            state.vy = 0;
+        const surfacesDash = surfacesAt(state.x, state.z, staticWorld, playerRadius);
+        let hitDash;
+        if (yDashCandidate > state.y) {
+            const hitCeiling = getSurfaceHit(state.y + playerHeight, yDashCandidate + playerHeight, surfacesDash);
+            hitDash = hitCeiling !== null ? hitCeiling - playerHeight : null;
+            state.y = hitCeiling !== null ? hitCeiling - playerHeight : yDashCandidate;
         }
+        else {
+            hitDash = getSurfaceHit(state.y, yDashCandidate, surfacesDash);
+            state.y = hitDash !== null ? hitDash : yDashCandidate;
+        }
+        if (hitDash !== null)
+            state.vy = 0;
         const wall = staticWorld
             ? resolveStaticWorldXZ(state.x, state.y, state.z, playerRadius, staticWorld)
             : resolveArenaWalls(state.x, state.z, playerRadius);
@@ -146,18 +160,24 @@ export function stepPlayerMovement(state, input, dt, playerRadius, staticWorld) 
         state.vy -= t.gravity * dt;
         state.vy = Math.max(state.vy, -t.maxFallSpeed);
         state.x += state.vx * dt;
+        const yBeforeSlide = state.y;
         state.y += state.vy * dt;
         state.z += state.vz * dt;
-        let gYSlide = groundYAt(state.x, state.z, staticWorld, playerRadius, state.y);
-        if (!Number.isFinite(gYSlide) && staticWorld && Math.hypot(state.vx, state.vz) > 0.01) {
+        let surfacesSlide = surfacesAt(state.x, state.z, staticWorld, playerRadius);
+        if (surfacesSlide.length === 0 && staticWorld && Math.hypot(state.vx, state.vz) > 0.01) {
             const backX = state.x - state.vx * dt * 0.5;
             const backZ = state.z - state.vz * dt * 0.5;
-            const gYBack = groundYAt(backX, backZ, staticWorld, playerRadius, state.y);
-            if (Number.isFinite(gYBack))
-                gYSlide = gYBack;
+            surfacesSlide = surfacesAt(backX, backZ, staticWorld, playerRadius);
         }
-        if (Number.isFinite(gYSlide) && state.y <= gYSlide + GROUND_SNAP_TOLERANCE) {
-            state.y = gYSlide;
+        const goingUpSlide = state.y > yBeforeSlide;
+        const hitSlide = goingUpSlide
+            ? (() => {
+                const hitCeiling = getSurfaceHit(yBeforeSlide + playerHeight, state.y + playerHeight, surfacesSlide);
+                return hitCeiling !== null ? hitCeiling - playerHeight : null;
+            })()
+            : getSurfaceHit(yBeforeSlide, state.y, surfacesSlide);
+        if (hitSlide !== null) {
+            state.y = hitSlide;
             state.vy = 0;
         }
         const wall = staticWorld
@@ -169,6 +189,12 @@ export function stepPlayerMovement(state, input, dt, playerRadius, staticWorld) 
         applyWallVelocitySlide(velSlide, wall);
         state.vx = velSlide.x;
         state.vz = velSlide.z;
+        const surfacesAfterSlide = surfacesAt(state.x, state.z, staticWorld, playerRadius);
+        const floorSlide = getHighestSurfaceAtOrBelow(state.y + GROUND_SNAP_TOLERANCE, surfacesAfterSlide);
+        if (floorSlide !== null && state.y < floorSlide) {
+            state.y = floorSlide;
+            state.vy = 0;
+        }
         const cos = Math.cos(input.yaw);
         const sin = Math.sin(input.yaw);
         const inputWorldX = input.moveX * cos - input.moveZ * sin;
@@ -182,11 +208,11 @@ export function stepPlayerMovement(state, input, dt, playerRadius, staticWorld) 
             ext.slideEnterCooldownTimer = t.slideEnterCooldown;
             return;
         }
-        const gYSlideCheck = groundYAt(state.x, state.z, staticWorld, playerRadius, state.y);
+        const onGroundSlideCheck = floorSlide !== null &&
+            (state.y <= floorSlide + GROUND_SNAP_TOLERANCE || state.y < floorSlide);
         const stillSliding = hor >= t.slideMinSpeed &&
             ext.slideTime < t.slideDurationMax &&
-            Number.isFinite(gYSlideCheck) &&
-            state.y <= gYSlideCheck + GROUND_SNAP_TOLERANCE;
+            onGroundSlideCheck;
         const canSlideJump = ext.slideJumpCooldownTimer <= 0;
         if (input.jump && stillSliding && canSlideJump) {
             const mult = t.slideJumpMultiplier;
@@ -201,10 +227,7 @@ export function stepPlayerMovement(state, input, dt, playerRadius, staticWorld) 
         }
         else if (!stillSliding) {
             ext.slideEnterCooldownTimer = t.slideEnterCooldown;
-            state.movementState =
-                Number.isFinite(gYSlideCheck) && state.y <= gYSlideCheck + GROUND_SNAP_TOLERANCE
-                    ? "grounded"
-                    : "airborne";
+            state.movementState = onGroundSlideCheck ? "grounded" : "airborne";
         }
         return;
     }
@@ -222,11 +245,23 @@ export function stepPlayerMovement(state, input, dt, playerRadius, staticWorld) 
         state.vy -= t.gravity * dt;
         state.vy = Math.max(state.vy, -t.maxFallSpeed);
         state.x += state.vx * dt;
-        state.y += state.vy * dt;
         state.z += state.vz * dt;
-        const gYAir = groundYAt(state.x, state.z, staticWorld, playerRadius, state.y);
-        if (Number.isFinite(gYAir) && state.y <= gYAir + GROUND_SNAP_TOLERANCE) {
-            state.y = gYAir;
+        const yCandidate = state.y + state.vy * dt;
+        const surfacesAir = surfacesAt(state.x, state.z, staticWorld, playerRadius);
+        const goingUp = yCandidate > state.y;
+        let hitAir;
+        if (goingUp) {
+            // Head must not pass through ceiling: check head segment (state.y + playerHeight)
+            const hitCeiling = getSurfaceHit(state.y + playerHeight, yCandidate + playerHeight, surfacesAir);
+            hitAir = hitCeiling !== null ? hitCeiling - playerHeight : null;
+            state.y = hitCeiling !== null ? hitCeiling - playerHeight : yCandidate;
+        }
+        else {
+            hitAir = getSurfaceHit(state.y, yCandidate, surfacesAir);
+            state.y = hitAir !== null ? hitAir : yCandidate;
+        }
+        const wasFalling = yCandidate < state.y;
+        if (hitAir !== null && wasFalling) {
             state.vy = 0;
             const horLand = Math.hypot(state.vx, state.vz);
             if (ext.slideOnLand && horLand >= t.slideEnterSpeed) {
@@ -255,10 +290,14 @@ export function stepPlayerMovement(state, input, dt, playerRadius, staticWorld) 
             }
             ext.slideOnLand = false;
         }
-        else {
+        if (hitAir === null) {
             if (ext.horSpeedWhenJumped === 0 && hor > 0) {
                 ext.horSpeedWhenJumped = hor;
             }
+            state.movementState = "airborne";
+        }
+        else if (!wasFalling) {
+            state.vy = 0;
             state.movementState = "airborne";
         }
         const wall = staticWorld
@@ -266,6 +305,12 @@ export function stepPlayerMovement(state, input, dt, playerRadius, staticWorld) 
             : resolveArenaWalls(state.x, state.z, playerRadius);
         state.x = wall.x;
         state.z = wall.z;
+        const surfacesAfterAir = surfacesAt(state.x, state.z, staticWorld, playerRadius);
+        const floorAfterAir = getHighestSurfaceAtOrBelow(state.y + GROUND_SNAP_TOLERANCE, surfacesAfterAir);
+        if (floorAfterAir !== null && state.y < floorAfterAir) {
+            state.y = floorAfterAir;
+            state.vy = 0;
+        }
         const hasWallNormal = (wall.normalX !== undefined && wall.normalX !== 0) ||
             (wall.normalZ !== undefined && wall.normalZ !== 0);
         if (hasWallNormal) {
@@ -361,10 +406,12 @@ export function stepPlayerMovement(state, input, dt, playerRadius, staticWorld) 
     state.x += state.vx * dt;
     state.y += state.vy * dt;
     state.z += state.vz * dt;
-    const gYGrounded = groundYAt(state.x, state.z, staticWorld, playerRadius, state.y);
-    if (Number.isFinite(gYGrounded) &&
-        state.y <= gYGrounded + GROUND_SNAP_TOLERANCE) {
-        state.y = gYGrounded;
+    const surfacesGrounded = surfacesAt(state.x, state.z, staticWorld, groundMargin);
+    const floorGrounded = getHighestSurfaceAtOrBelow(state.y + GROUND_SNAP_TOLERANCE, surfacesGrounded);
+    const onGroundGrounded = floorGrounded !== null &&
+        (state.y <= floorGrounded + GROUND_SNAP_TOLERANCE || state.y < floorGrounded);
+    if (onGroundGrounded) {
+        state.y = floorGrounded;
         state.vy = 0;
         state.movementState = "grounded";
     }
@@ -383,5 +430,23 @@ export function stepPlayerMovement(state, input, dt, playerRadius, staticWorld) 
     applyWallVelocitySlide(vel, wall);
     state.vx = vel.x;
     state.vz = vel.z;
+    const surfacesFinal = surfacesAt(state.x, state.z, staticWorld, groundMargin);
+    let floorFinal = getHighestSurfaceAtOrBelow(state.y + GROUND_SNAP_TOLERANCE, surfacesFinal);
+    if (floorFinal !== null && state.y < floorFinal) {
+        state.y = floorFinal;
+        state.vy = 0;
+    }
+    const horStep = Math.hypot(state.vx, state.vz);
+    if (floorFinal === null && staticWorld && horStep > 0.5) {
+        const step = 0.2;
+        const aheadX = state.x + (state.vx / horStep) * step;
+        const aheadZ = state.z + (state.vz / horStep) * step;
+        const surfacesAhead = surfacesAt(aheadX, aheadZ, staticWorld, groundMargin);
+        const floorAhead = getHighestSurfaceAtOrBelow(state.y + 0.5, surfacesAhead);
+        if (floorAhead !== null && floorAhead > state.y && floorAhead - state.y <= 0.5) {
+            state.y = floorAhead;
+            state.vy = 0;
+        }
+    }
 }
 export { createDefaultExt };

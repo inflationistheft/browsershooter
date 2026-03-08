@@ -30,7 +30,7 @@ export function createKillfeed(parent: HTMLElement): void {
   const root = document.createElement("div");
   root.id = "killfeed";
   root.style.cssText =
-    "position:fixed;top:32px;right:32px;pointer-events:none;z-index:9999;" +
+    "position:fixed;top:88px;right:32px;pointer-events:none;z-index:9999;" +
     "display:flex;flex-direction:column;gap:6px;align-items:flex-end;font-family:system-ui,sans-serif;";
   parent.appendChild(root);
   container = root;
